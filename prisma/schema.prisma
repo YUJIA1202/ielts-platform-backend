@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             Int              @id @default(autoincrement())
+  phone          String           @unique
+  username       String
+  password       String?
+  avatar         String?
+  registrationIp String?
+  targetScore    Float?
+  currentScore   Float?
+  examDate       DateTime?
+  studyFocus     String?
+  weeklyHours    Int?
+  role           Role             @default(USER)
+  subscription   SubscriptionTier @default(FREE)
+  subExpiresAt   DateTime?
+  banned         Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  submissions      Submission[]
+  payments         Payment[]
+  loginSessions    LoginSession[]
+  trialLogs        VideoTrialLog[]
+  correctionCodes  CorrectionCode[]
+  messages         Message[]
+  essayViewLogs    EssayViewLog[]
+  questionViewLogs QuestionViewLog[]
+  reflections      Reflection[]
+}
+
+model LoginSession {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  token     String   @db.Text
+  deviceId  String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Question {
+  id        Int      @id @default(autoincrement())
+  task      TaskType
+  subtype   String?
+  topic     String?
+  content   String   @db.Text
+  outline   String?  @db.Text
+  imageUrl  String?
+  source    String?
+  year      Int?
+  month     Int?
+  createdAt DateTime @default(now())
+
+  essays      ModelEssay[]
+  submissions Submission[]
+  viewLogs    QuestionViewLog[]
+}
+
+model ModelEssay {
+  id              Int      @id @default(autoincrement())
+  questionId      Int
+  content         String   @db.LongText
+  pdfUrl          String?
+  annotatedPdfUrl String?
+  score           Float?
+  createdAt       DateTime @default(now())
+
+  viewLogs EssayViewLog[]
+  question Question @relation(fields: [questionId], references: [id])
+}
+
+model Video {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?  @db.Text
+  category    String
+  series      String
+  seriesOrder Int      @default(0)
+  duration    Int
+  url         String
+  coverUrl    String?
+  isFree      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  trialLogs VideoTrialLog[]
+}
+
+model VideoTrialLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  videoId   Int
+  date      String
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id])
+  video Video @relation(fields: [videoId], references: [id])
+
+  @@unique([userId, videoId])
+}
+
+model Submission {
+  id            Int              @id @default(autoincrement())
+  userId        Int
+  questionId    Int?
+  customPrompt  String?          @db.Text
+  imageUrl      String?
+  content       String?          @db.LongText
+  wordFileUrl   String?
+  status        SubmissionStatus @default(PENDING)
+  score         Float?
+  feedbackUrl   String?
+  taScore       Float?
+  ccScore       Float?
+  lrScore       Float?
+  graScore      Float?
+  overallScore  Float?
+  adminComment  String?          @db.Text
+  reviewFileUrl String?
+  reviewTask    String?
+  reviewSubtype String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id])
+  question       Question?       @relation(fields: [questionId], references: [id])
+  correctionCode CorrectionCode?
+  reflections    Reflection[]
+}
+
+model Reflection {
+  id           Int         @id @default(autoincrement())
+  userId       Int
+  title        String
+  content      String      @db.Text
+  tags         String?
+  submissionId Int?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id])
+  submission Submission? @relation(fields: [submissionId], references: [id])
+}
+
+model Payment {
+  id        Int              @id @default(autoincrement())
+  userId    Int
+  amount    Float
+  tier      SubscriptionTier
+  status    PaymentStatus    @default(PENDING)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model CorrectionCode {
+  id                 Int       @id @default(autoincrement())
+  code               String    @unique
+  type               CodeType
+  isUsed             Boolean   @default(false)
+  usedBy             Int?
+  usedAt             DateTime?
+  usedInSubmissionId Int?      @unique
+  createdAt          DateTime  @default(now())
+
+  user       User?       @relation(fields: [usedBy], references: [id])
+  submission Submission? @relation(fields: [usedInSubmissionId], references: [id])
+}
+
+model Message {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  type      String   @default("other")
+  title     String
+  content   String   @db.Text
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model EssayViewLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  essayId   Int
+  createdAt DateTime @default(now())
+
+  user  User       @relation(fields: [userId], references: [id])
+  essay ModelEssay @relation(fields: [essayId], references: [id])
+
+  @@unique([userId, essayId])
+}
+
+model QuestionViewLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  questionId Int
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id])
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@unique([userId, questionId])
+}
+
+// 告示板公告（可动态增删改）
+model Notice {
+  id        Int      @id @default(autoincrement())
+  type      String   // "update" | "notice" | "tip"
+  title     String
+  content   String   @db.Text
+  date      String   // 显示用，如 "2026-03-20"
+  sortOrder Int      @default(0)
+  visible   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// 通用站点配置（键值对，存所有其他可配置内容）
+model SiteConfig {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique  // 如 "about_intro", "stats", "teachers"
+  value     String   @db.LongText  // JSON 字符串
+  updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum SubscriptionTier {
+  FREE
+  BASIC
+  PRO
+}
+
+enum TaskType {
+  TASK1
+  TASK2
+}
+
+enum SubmissionStatus {
+  PENDING
+  REVIEWED
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum CodeType {
+  TASK2
+  TASK1
+  ANY
+}

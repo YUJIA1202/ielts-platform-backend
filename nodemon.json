@@ -1,0 +1,8 @@
+{
+  "execMap": {
+    "ts": "ts-node"
+  },
+  "ext": "ts,json",
+  "ignore": ["node_modules"],
+  "watch": ["src"]
+}
