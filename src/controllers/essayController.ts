@@ -209,3 +209,121 @@ export const deleteEssay = async (req: Request, res: Response) => {
     res.status(500).json({ error: '删除失败' })
   }
 }
+export const generatePdf = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const userId = (req as any).userId
+
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+    if (!user) return res.status(401).json({ error: '用户不存在' })
+
+    const essay = await prisma.modelEssay.findUnique({
+      where: { id: parseInt(Array.isArray(id) ? id[0] : id) },
+      include: {
+        question: {
+          select: { task: true, subtype: true, topic: true, content: true, imageUrl: true, year: true, month: true, source: true }
+        }
+      }
+    })
+    if (!essay) return res.status(404).json({ error: '范文不存在' })
+
+    const watermark = user.phone || user.username || 'IELTS PRO'
+    const taskLabel = essay.question.task === 'TASK2' ? 'Task 2 大作文' : 'Task 1 小作文'
+    const scoreLabel = essay.score ? ` · ${essay.score}分` : ''
+    const imageUrl = Array.isArray(essay.question.imageUrl) ? essay.question.imageUrl[0] : (essay.question.imageUrl || '')
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 13px;
+    color: #1e293b;
+    padding: 28px 36px;
+    position: relative;
+  }
+  .watermark {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    pointer-events: none;
+    z-index: 999;
+    overflow: hidden;
+  }
+  .wm-item {
+    color: rgba(0,0,0,0.06);
+    font-size: 16px;
+    font-weight: 400;
+    transform: rotate(-25deg);
+    white-space: nowrap;
+    margin: 40px 30px;
+  }
+  .title { font-size: 18px; font-weight: 700; color: #1d4ed8; margin-bottom: 6px; }
+  .subtitle { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+  .divider { border: none; border-top: 1px solid #e2e8f0; margin: 12px 0; }
+  .section-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .question-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 18px; margin-bottom: 14px; }
+  .question-text { font-size: 13px; color: #374151; line-height: 1.85; font-family: Georgia, serif; }
+  .question-img { display: block; max-width: 480px; width: 100%; margin: 12px auto 0; border-radius: 6px; }
+  .essay-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px 22px; }
+  .para { font-size: 13px; color: #1e293b; line-height: 1.95; font-family: Georgia, serif; margin-bottom: 12px; }
+  .footer { margin-top: 16px; font-size: 10px; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="watermark">
+  ${Array.from({ length: 30 }).map(() => `<div class="wm-item">${watermark}</div>`).join('')}
+</div>
+
+<div class="title">IELTS Writing - Model Essay</div>
+<div class="subtitle">${taskLabel}${scoreLabel}</div>
+${essay.question.subtype || essay.question.topic ? `<div class="subtitle" style="color:#94a3b8">${essay.question.subtype || ''}${essay.question.subtype && essay.question.topic ? ' · ' : ''}${essay.question.topic || ''}</div>` : ''}
+
+<hr class="divider">
+
+${essay.question.content ? `
+<div class="question-box">
+  <div class="section-label">题目</div>
+  <div class="question-text">${essay.question.content.replace(/\n/g, '<br>')}</div>
+  ${imageUrl ? `<img class="question-img" src="${imageUrl}" crossorigin="anonymous">` : ''}
+</div>
+` : ''}
+
+<div class="essay-box">
+  <div class="section-label">范文</div>
+  ${essay.content.split('\n').filter(p => p.trim()).map(p => `<div class="para">${p.trim()}</div>`).join('')}
+</div>
+
+<div class="footer">© IELTS Writing Pro · ${watermark} · 仅供个人学习使用</div>
+
+</body>
+</html>`
+
+    const puppeteer = await import('puppeteer')
+    const browser = await puppeteer.default.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    })
+    const page = await browser.newPage()
+    await page.setContent(html, { waitUntil: 'networkidle0' })
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      margin: { top: '20mm', bottom: '20mm', left: '18mm', right: '18mm' },
+      printBackground: true,
+    })
+    await browser.close()
+
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename="essay_${id}.pdf"`)
+    res.send(pdfBuffer)
+  } catch (err) {
+    console.error('PDF生成失败', err)
+    res.status(500).json({ error: 'PDF生成失败' })
+  }
+}
