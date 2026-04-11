@@ -1,12 +1,13 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
+import { uploadToCOS } from '../lib/cos'
 
 export const createSubmission = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId
     const { questionId, customPrompt, content, correctionCode } = req.body
 
-    if (!content && !req.file) {
+    if (!content && !req.files) {
       return res.status(400).json({ error: '请输入文章内容或上传文件' })
     }
 
@@ -14,7 +15,6 @@ export const createSubmission = async (req: Request, res: Response) => {
       return res.status(400).json({ error: '请输入批改码' })
     }
 
-    // 验证批改码
     const codeRecord = await prisma.correctionCode.findUnique({
       where: { code: correctionCode.trim().toUpperCase() },
     })
@@ -22,17 +22,32 @@ export const createSubmission = async (req: Request, res: Response) => {
     if (!codeRecord) return res.status(400).json({ error: '批改码不存在' })
     if (codeRecord.isUsed) return res.status(400).json({ error: '该批改码已被使用' })
 
-    // 创建提交记录
+    // 上传文件到 COS
+    const files = req.files as Record<string, Express.Multer.File[]>
+    const imageFile = files?.image?.[0]
+    const wordFile = files?.wordFile?.[0]
+
+    let imageUrl: string | undefined
+    let wordFileUrl: string | undefined
+
+    if (imageFile) {
+      imageUrl = await uploadToCOS(imageFile.buffer, imageFile.originalname, 'submissions/images')
+    }
+    if (wordFile) {
+      wordFileUrl = await uploadToCOS(wordFile.buffer, wordFile.originalname, 'submissions/words')
+    }
+
     const submission = await prisma.submission.create({
       data: {
         userId,
         questionId: questionId ? parseInt(questionId) : null,
         customPrompt,
         content,
+        ...(imageUrl && { imageUrl }),
+        ...(wordFileUrl && { wordFileUrl }),
       },
     })
 
-    // 标记批改码为已使用
     await prisma.correctionCode.update({
       where: { code: codeRecord.code },
       data: {
@@ -130,7 +145,7 @@ export const reviewSubmission = async (req: Request, res: Response) => {
 
     const file = req.file
     const reviewFileUrl = file
-      ? `${process.env.BASE_URL || 'http://localhost:4000'}/uploads/submissions/reviews/${file.filename}`
+      ? await uploadToCOS(file.buffer, file.originalname, 'submissions/reviews')
       : undefined
 
     const submission = await prisma.submission.update({
