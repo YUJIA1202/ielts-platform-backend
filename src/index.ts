@@ -23,7 +23,8 @@ dotenv.config()
 const app  = express()
 const PORT = process.env.PORT || 4000
 
-// 安全响应头
+
+app.set('trust proxy', 1)
 app.use(helmet())
 
 // CORS：明确允许前端域名，并允许携带 Cookie
