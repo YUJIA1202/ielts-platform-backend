@@ -1,6 +1,8 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { uploadToCOS } from '../lib/cos'
+import chromium from '@sparticuz/chromium'
+import puppeteer from 'puppeteer-core'
 
 export const getEssays = async (req: Request, res: Response) => {
   try {
@@ -137,7 +139,6 @@ export const getAnnotatedPdf = async (req: Request, res: Response) => {
     if (!essay) return res.status(404).json({ error: '范文不存在' })
     if (!essay.annotatedPdfUrl) return res.status(404).json({ error: '该范文暂无批注版 PDF' })
 
-    // COS 上的文件直接重定向，不需要本地读取
     res.redirect(essay.annotatedPdfUrl)
   } catch (err) {
     console.error(err)
@@ -209,6 +210,7 @@ export const deleteEssay = async (req: Request, res: Response) => {
     res.status(500).json({ error: '删除失败' })
   }
 }
+
 export const generatePdf = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
@@ -230,7 +232,9 @@ export const generatePdf = async (req: Request, res: Response) => {
     const watermark = user.phone || user.username || 'IELTS PRO'
     const taskLabel = essay.question.task === 'TASK2' ? 'Task 2 大作文' : 'Task 1 小作文'
     const scoreLabel = essay.score ? ` · ${essay.score}分` : ''
-    const imageUrl = Array.isArray(essay.question.imageUrl) ? essay.question.imageUrl[0] : (essay.question.imageUrl || '')
+    const imageUrl = Array.isArray(essay.question.imageUrl)
+      ? essay.question.imageUrl[0]
+      : (essay.question.imageUrl || '')
 
     const html = `<!DOCTYPE html>
 <html>
@@ -291,7 +295,7 @@ ${essay.question.content ? `
 <div class="question-box">
   <div class="section-label">题目</div>
   <div class="question-text">${essay.question.content.replace(/\n/g, '<br>')}</div>
-  ${imageUrl ? `<img class="question-img" src="${imageUrl}" crossorigin="anonymous">` : ''}
+  ${imageUrl ? `<img class="question-img" src="${imageUrl}">` : ''}
 </div>
 ` : ''}
 
@@ -305,12 +309,11 @@ ${essay.question.content ? `
 </body>
 </html>`
 
-    const puppeteer = await import('puppeteer')
-    const browser = await puppeteer.default.launch({
-      headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    })
+   const browser = await puppeteer.launch({
+  args: chromium.args,
+  executablePath: await chromium.executablePath(),
+  headless: true,
+})
     const page = await browser.newPage()
     await page.setContent(html, { waitUntil: 'networkidle0' })
     const pdfBuffer = await page.pdf({
