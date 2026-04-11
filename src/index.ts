@@ -17,8 +17,7 @@ import messageRoutes        from './routes/messages'
 import reflectionRoutes     from './routes/reflections'
 import siteConfigRoutes     from './routes/siteConfig'
 import noticeRoutes         from './routes/notices'
-
-dotenv.config()
+dotenv.config({ override: false })
 
 const app  = express()
 const PORT = process.env.PORT || 4000
