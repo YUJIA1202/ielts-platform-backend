@@ -11,13 +11,12 @@ const IP_MAX_REGISTERS = 3
 const smsCodes: Record<string, { code: string; expiresAt: number }> = {}
 const loginFailCounts: Record<string, { count: number; lockedAt?: number; lockLevel: number }> = {}
 
-// 根据锁定等级返回锁定时长（毫秒）
 function getLockDuration(lockLevel: number): number {
   switch (lockLevel) {
-    case 1: return 5 * 60 * 1000       // 5分钟
-    case 2: return 10 * 60 * 1000      // 10分钟
-    case 3: return 60 * 60 * 1000      // 1小时
-    default: return 2 * 60 * 60 * 1000 // 2小时
+    case 1: return 5 * 60 * 1000
+    case 2: return 10 * 60 * 1000
+    case 3: return 60 * 60 * 1000
+    default: return 2 * 60 * 60 * 1000
   }
 }
 
@@ -32,7 +31,6 @@ function recordFailure(key: string): { count: number; locked: boolean; lockMinut
   loginFailCounts[key].count += 1
   const count = loginFailCounts[key].count
 
-  // 第一次达到5次触发验证，之后每次验证后再输错就升级锁定
   if (count > MAX_FAIL_COUNT) {
     loginFailCounts[key].lockLevel += 1
     loginFailCounts[key].lockedAt = Date.now()
@@ -42,6 +40,15 @@ function recordFailure(key: string): { count: number; locked: boolean; lockMinut
   }
 
   return { count, locked: false, lockMinutes: 0 }
+}
+
+function setTokenCookie(res: Response, token: string) {
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+  })
 }
 
 export const sendCode = async (req: Request, res: Response) => {
@@ -80,6 +87,8 @@ export const register = async (req: Request, res: Response) => {
   const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' })
   const deviceId = `${ip}-${Date.now()}`
   await prisma.loginSession.create({ data: { userId: user.id, token, deviceId } })
+
+  setTokenCookie(res, token)
   res.json({ token, user })
 }
 
@@ -98,6 +107,8 @@ export const login = async (req: Request, res: Response) => {
 
   const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' })
   await handleDeviceSession(user.id, token, ip)
+
+  setTokenCookie(res, token)
   res.json({ token, user })
 }
 
@@ -106,7 +117,6 @@ export const loginPassword = async (req: Request, res: Response) => {
   const ip = getClientIp(req)
   const failKey = `fail:${phone}`
 
-  // 检查是否被锁定
   const failRecord = loginFailCounts[failKey]
   if (failRecord?.lockedAt) {
     const duration = getLockDuration(failRecord.lockLevel)
@@ -121,7 +131,6 @@ export const loginPassword = async (req: Request, res: Response) => {
       })
       return
     } else {
-      // 锁定时间结束，重置计数但保留 lockLevel
       loginFailCounts[failKey].count = MAX_FAIL_COUNT
       loginFailCounts[failKey].lockedAt = undefined
     }
@@ -167,11 +176,12 @@ export const loginPassword = async (req: Request, res: Response) => {
     return
   }
 
-  // 登录成功清除失败记录
   delete loginFailCounts[failKey]
 
   const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' })
   await handleDeviceSession(user.id, token, ip)
+
+  setTokenCookie(res, token)
   res.json({ token, user })
 }
 
@@ -192,4 +202,9 @@ export const getMe = async (req: Request, res: Response) => {
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) { res.status(404).json({ error: '用户不存在' }); return }
   res.json(user)
+}
+
+export const logout = async (req: Request, res: Response) => {
+  res.clearCookie('token')
+  res.json({ success: true })
 }

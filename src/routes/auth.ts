@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { sendCode, register, login, loginPassword, getMe } from '../controllers/authController'
+import { sendCode, register, login, loginPassword, getMe, logout } from '../controllers/authController'
 import { requireAuth } from '../middleware/auth'
 
 const router = Router()
@@ -9,5 +9,6 @@ router.post('/register', register)
 router.post('/login', login)
 router.post('/login-password', loginPassword)
 router.get('/me', requireAuth, getMe)
+router.post('/logout', logout)
 
 export default router

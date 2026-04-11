@@ -4,12 +4,21 @@ import jwt from 'jsonwebtoken'
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_in_production'
 
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  // 优先从 Cookie 读，兼容旧的 Authorization header
+  let token = req.cookies?.token
+
+  if (!token) {
+    const authHeader = req.headers.authorization
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1]
+    }
+  }
+
+  if (!token) {
     res.status(401).json({ error: '未登录' })
     return
   }
-  const token = authHeader.split(' ')[1]
+
   try {
     const payload = jwt.verify(token, JWT_SECRET) as any
     ;(req as any).userId = payload.userId
