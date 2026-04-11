@@ -1,8 +1,6 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { uploadToCOS } from '../lib/cos'
-import chromium from '@sparticuz/chromium'
-import puppeteer from 'puppeteer-core'
 
 export const getEssays = async (req: Request, res: Response) => {
   try {
@@ -309,19 +307,15 @@ ${essay.question.content ? `
 </body>
 </html>`
 
-   const browser = await puppeteer.launch({
-  args: chromium.args,
-   executablePath: process.env.CHROMIUM_PATH || await chromium.executablePath(),
-  headless: true,
-})
-    const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: 'networkidle0' })
-    const pdfBuffer = await page.pdf({
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const htmlPdf = require('html-pdf-node')
+    const file = { content: html }
+    const options = {
       format: 'A4',
       margin: { top: '20mm', bottom: '20mm', left: '18mm', right: '18mm' },
       printBackground: true,
-    })
-    await browser.close()
+    }
+    const pdfBuffer = await htmlPdf.generatePdf(file, options)
 
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="essay_${id}.pdf"`)
