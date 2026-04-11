@@ -308,6 +308,7 @@ ${essay.question.content ? `
     const puppeteer = await import('puppeteer')
     const browser = await puppeteer.default.launch({
       headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     })
     const page = await browser.newPage()
