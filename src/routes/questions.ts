@@ -1,25 +1,12 @@
 import { Router } from 'express'
 import multer from 'multer'
-import path from 'path'
-import fs from 'fs'
 import { getQuestions, getQuestionById, createQuestion, updateQuestion, deleteQuestion } from '../controllers/questionController'
 import { requireAuth, requireAdmin } from '../middleware/auth'
 
 const router = Router()
 
-const imgDir = path.join(process.cwd(), 'uploads/questions')
-if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true })
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, imgDir),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname)
-    cb(null, `question_${Date.now()}${ext}`)
-  },
-})
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {

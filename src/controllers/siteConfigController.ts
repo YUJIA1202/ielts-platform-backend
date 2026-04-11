@@ -1,34 +1,23 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
 import multer from 'multer'
-import path from 'path'
-import fs from 'fs'
+import { uploadToCOS } from '../lib/cos'
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    const dir = path.join(process.cwd(), 'uploads/site')
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    cb(null, dir)
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname)
-    cb(null, `${file.fieldname}_${Date.now()}${ext}`)
-  },
-})
-export const uploadSiteImage = multer({ storage })
+// 改用内存存储
+export const uploadSiteImage = multer({ storage: multer.memoryStorage() })
 
 export const uploadQRCode = async (req: Request, res: Response) => {
   try {
-    const { key } = req.params as { key: string }  // 如 "qr_wechat" 或 "qr_public"
-    const file = (req as any).file
+    const { key } = req.params as { key: string }
+    const file = (req as any).file as Express.Multer.File | undefined
     if (!file) return res.status(400).json({ error: '没有上传文件' })
 
-    const url = `/uploads/site/${file.filename}`
+    const url = await uploadToCOS(file.buffer, file.originalname, 'site')
 
     await prisma.siteConfig.upsert({
       where:  { key },
       update: { value: JSON.stringify(url) },
-      create: { key,  value: JSON.stringify(url) },
+      create: { key,   value: JSON.stringify(url) },
     })
     res.json({ url })
   } catch (err) {
@@ -37,7 +26,6 @@ export const uploadQRCode = async (req: Request, res: Response) => {
   }
 }
 
-// 公开：前端读取全部配置
 export const getAllSiteConfigs = async (req: Request, res: Response) => {
   try {
     const configs = await prisma.siteConfig.findMany()
@@ -53,16 +41,16 @@ export const getAllSiteConfigs = async (req: Request, res: Response) => {
   }
 }
 
-// 管理员：更新某个 key 的配置（不存在则创建）
 export const upsertSiteConfig = async (req: Request, res: Response) => {
-  try {const { key } = req.params as { key: string }
-      const { value } = req.body
+  try {
+    const { key } = req.params as { key: string }
+    const { value } = req.body
     if (value === undefined) return res.status(400).json({ error: 'value 不能为空' })
 
     const config = await prisma.siteConfig.upsert({
       where:  { key },
       update: { value: JSON.stringify(value) },
-      create: { key,  value: JSON.stringify(value) },
+      create: { key,   value: JSON.stringify(value) },
     })
     res.json(config)
   } catch (err) {

@@ -1,7 +1,6 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
-import path from 'path'
-import fs from 'fs'
+import { uploadToCOS } from '../lib/cos'
 
 export const getEssays = async (req: Request, res: Response) => {
   try {
@@ -77,7 +76,6 @@ export const getEssayById = async (req: Request, res: Response) => {
     const userId = (req as any).userId
     const role = (req as any).role
 
-    // 管理员直接跳过订阅检查
     if (role !== 'ADMIN') {
       const user = await prisma.user.findUnique({ where: { id: userId } })
       if (!user || user.subscription === 'FREE') {
@@ -95,7 +93,7 @@ export const getEssayById = async (req: Request, res: Response) => {
       where: { id: parseInt(id as string) },
       include: {
         question: {
-          select: { task: true, subtype: true, topic: true, content: true, year: true, month: true, source: true }
+          select: { task: true, subtype: true, topic: true, content: true, year: true, month: true, source: true, imageUrl: true }
         }
       }
     })
@@ -111,6 +109,7 @@ export const getEssayById = async (req: Request, res: Response) => {
       subtype: essay.question.subtype,
       topic: essay.question.topic,
       questionContent: essay.question.content,
+      questionImageUrl: essay.question.imageUrl,
       year: essay.question.year,
       month: essay.question.month,
       source: essay.question.source,
@@ -120,6 +119,7 @@ export const getEssayById = async (req: Request, res: Response) => {
     res.status(500).json({ error: '获取范文详情失败' })
   }
 }
+
 export const getAnnotatedPdf = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
@@ -137,14 +137,8 @@ export const getAnnotatedPdf = async (req: Request, res: Response) => {
     if (!essay) return res.status(404).json({ error: '范文不存在' })
     if (!essay.annotatedPdfUrl) return res.status(404).json({ error: '该范文暂无批注版 PDF' })
 
-    const filePath = path.join(process.cwd(), essay.annotatedPdfUrl)
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: '文件不存在' })
-    }
-
-    res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `attachment; filename="annotated_${id}.pdf"`)
-    fs.createReadStream(filePath).pipe(res)
+    // COS 上的文件直接重定向，不需要本地读取
+    res.redirect(essay.annotatedPdfUrl)
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: '下载失败' })
@@ -158,10 +152,10 @@ export const createEssay = async (req: Request, res: Response) => {
       return res.status(400).json({ error: '题目和范文内容不能为空' })
     }
 
-    const file = req.file
-    const annotatedPdfUrl = file
-      ? `/uploads/essays/${file.filename}`
-      : undefined
+    let annotatedPdfUrl: string | undefined
+    if (req.file) {
+      annotatedPdfUrl = await uploadToCOS(req.file.buffer, req.file.originalname, 'essays')
+    }
 
     const essay = await prisma.modelEssay.create({
       data: {
@@ -183,10 +177,10 @@ export const updateEssay = async (req: Request, res: Response) => {
     const { id } = req.params
     const { questionId, content, score } = req.body
 
-    const file = req.file
-    const annotatedPdfUrl = file
-      ? `/uploads/essays/${file.filename}`
-      : undefined
+    let annotatedPdfUrl: string | undefined
+    if (req.file) {
+      annotatedPdfUrl = await uploadToCOS(req.file.buffer, req.file.originalname, 'essays')
+    }
 
     const data: any = {}
     if (questionId !== undefined) data.questionId = parseInt(questionId)

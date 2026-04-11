@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
+import { uploadToCOS } from '../lib/cos'
 
 export const getQuestions = async (req: Request, res: Response) => {
   const task = req.query.task as string | undefined
@@ -48,10 +49,10 @@ export const createQuestion = async (req: Request, res: Response) => {
     return
   }
 
-  const file = req.file
-  const imageUrl = file
-    ? `${process.env.BASE_URL || 'http://localhost:4000'}/uploads/questions/${file.filename}`
-    : undefined
+  let imageUrl: string | undefined
+  if (req.file) {
+    imageUrl = await uploadToCOS(req.file.buffer, req.file.originalname, 'questions')
+  }
 
   const question = await prisma.question.create({
     data: {
@@ -68,10 +69,10 @@ export const updateQuestion = async (req: Request, res: Response) => {
   const { id } = req.params
   const { task, subtype, topic, content, outline, source, year, month } = req.body
 
-  const file = req.file
-  const imageUrl = file
-    ? `${process.env.BASE_URL || 'http://localhost:4000'}/uploads/questions/${file.filename}`
-    : undefined
+  let imageUrl: string | undefined
+  if (req.file) {
+    imageUrl = await uploadToCOS(req.file.buffer, req.file.originalname, 'questions')
+  }
 
   const data: any = {}
   if (task !== undefined) data.task = task
