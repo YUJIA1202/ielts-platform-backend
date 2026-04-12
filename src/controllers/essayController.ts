@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { uploadToCOS } from '../lib/cos'
+import puppeteer from 'puppeteer-core'
 
 export const getEssays = async (req: Request, res: Response) => {
   try {
@@ -241,7 +242,7 @@ export const generatePdf = async (req: Request, res: Response) => {
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-family: "Noto Sans CJK SC", "Noto Sans SC", "WenQuanYi Micro Hei", sans-serif;
     font-size: 13px;
     color: #1e293b;
     padding: 28px 36px;
@@ -307,15 +308,27 @@ ${essay.question.content ? `
 </body>
 </html>`
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const htmlPdf = require('html-pdf-node')
-    const file = { content: html }
-    const options = {
+    const browser = await puppeteer.launch({
+      executablePath: '/usr/bin/chromium',
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+      ],
+    })
+    const page = await browser.newPage()
+    await page.setContent(html, { waitUntil: 'networkidle0' })
+    const pdfBuffer = await page.pdf({
       format: 'A4',
       margin: { top: '20mm', bottom: '20mm', left: '18mm', right: '18mm' },
       printBackground: true,
-    }
-    const pdfBuffer = await htmlPdf.generatePdf(file, options)
+    })
+    await browser.close()
 
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="essay_${id}.pdf"`)
