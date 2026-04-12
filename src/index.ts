@@ -17,6 +17,7 @@ import messageRoutes        from './routes/messages'
 import reflectionRoutes     from './routes/reflections'
 import siteConfigRoutes     from './routes/siteConfig'
 import noticeRoutes         from './routes/notices'
+import outlineViewLogRoutes from './routes/outlineViewLog'
 dotenv.config({ override: false })
 
 const app  = express()
@@ -68,6 +69,7 @@ app.use('/api/messages',         messageRoutes)
 app.use('/api/reflections',      reflectionRoutes)
 app.use('/api/site-config',      siteConfigRoutes)
 app.use('/api/notices',          noticeRoutes)
+app.use('/api/outline-view-log', outlineViewLogRoutes)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', message: '服务器运行正常' })
