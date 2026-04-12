@@ -1,1 +1,5 @@
-{"aptPackages":["chromium","fonts-noto-cjk"]}
+{
+  "deploy": {
+    "aptPackages": ["chromium", "fonts-noto-cjk"]
+  }
+}
