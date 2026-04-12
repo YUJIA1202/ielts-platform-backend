@@ -228,7 +228,7 @@ export const generatePdf = async (req: Request, res: Response) => {
     })
     if (!essay) return res.status(404).json({ error: '范文不存在' })
 
-    const watermark = user.phone || user.username || 'IELTS PRO'
+    const watermark = `用户：${user.phone || user.username || 'IELTS PRO'}`
     const taskLabel = essay.question.task === 'TASK2' ? 'Task 2 大作文' : 'Task 1 小作文'
     const scoreLabel = essay.score ? ` · ${essay.score}分` : ''
     const imageUrl = Array.isArray(essay.question.imageUrl)
