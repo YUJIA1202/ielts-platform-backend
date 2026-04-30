@@ -1,8 +1,7 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { uploadToCOS } from '../lib/cos'
-import tencentcloud from 'tencentcloud-sdk-nodejs-tms'
-
+const tencentcloud = require('tencentcloud-sdk-nodejs-tms')
 const TmsClient = tencentcloud.tms.v20201229.Client
 const ImsClient = require('tencentcloud-sdk-nodejs-ims').ims.v20201229.Client
 
