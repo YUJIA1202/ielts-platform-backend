@@ -349,3 +349,33 @@ ${essay.question.content ? `
     res.status(500).json({ error: 'PDF生成失败' })
   }
 }
+export const getAnnotations = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const essay = await prisma.modelEssay.findUnique({
+      where: { id: parseInt(id as string) },
+      select: { annotations: true }
+    })
+    if (!essay) return res.status(404).json({ error: '范文不存在' })
+    const annotations = essay.annotations ? JSON.parse(essay.annotations) : []
+    res.json(annotations)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: '获取批注失败' })
+  }
+}
+
+export const saveAnnotations = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { annotations } = req.body
+    await prisma.modelEssay.update({
+      where: { id: parseInt(id as string) },
+      data: { annotations: JSON.stringify(annotations) }
+    })
+    res.json({ message: '保存成功' })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: '保存批注失败' })
+  }
+}
