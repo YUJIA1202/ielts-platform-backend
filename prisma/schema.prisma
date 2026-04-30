@@ -90,6 +90,7 @@ model ModelEssay {
 
   viewLogs EssayViewLog[]
   question Question @relation(fields: [questionId], references: [id])
+  annotations     String?  @db.LongText
 }
 
 model Video {

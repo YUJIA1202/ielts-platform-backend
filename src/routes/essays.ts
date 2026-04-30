@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import multer from 'multer'
-import { getEssays, getEssaysByQuestion, getEssayById, getAnnotatedPdf, createEssay, updateEssay, deleteEssay, generatePdf } from '../controllers/essayController'
+import { getEssays, getEssaysByQuestion, getEssayById, getAnnotatedPdf, createEssay, updateEssay, deleteEssay, generatePdf, getAnnotations, saveAnnotations } from '../controllers/essayController'
 import { requireAuth, requireAdmin } from '../middleware/auth'
 
 const router = Router()
@@ -21,6 +21,8 @@ router.get('/', getEssays)
 router.get('/question/:questionId', getEssaysByQuestion)
 router.get('/:id/annotated-pdf', requireAuth, getAnnotatedPdf)
 router.get('/:id/pdf', requireAuth, generatePdf)
+router.get('/:id/annotations', requireAuth, getAnnotations)
+router.put('/:id/annotations', requireAuth, requireAdmin, saveAnnotations)
 router.get('/:id', requireAuth, getEssayById)
 router.post('/', requireAuth, requireAdmin, upload.single('annotatedPdf'), createEssay)
 router.put('/:id', requireAuth, requireAdmin, upload.single('annotatedPdf'), updateEssay)

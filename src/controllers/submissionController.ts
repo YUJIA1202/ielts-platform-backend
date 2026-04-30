@@ -1,6 +1,47 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { uploadToCOS } from '../lib/cos'
+import tencentcloud from 'tencentcloud-sdk-nodejs-tms'
+
+const TmsClient = tencentcloud.tms.v20201229.Client
+const ImsClient = require('tencentcloud-sdk-nodejs-ims').ims.v20201229.Client
+
+const clientConfig = {
+  credential: {
+    secretId: process.env.TENCENT_SECRET_ID!,
+    secretKey: process.env.TENCENT_SECRET_KEY!,
+  },
+  region: process.env.TENCENT_REGION || 'ap-guangzhou',
+  profile: {},
+}
+
+async function checkTextSafety(text: string): Promise<boolean> {
+  try {
+    const client = new TmsClient(clientConfig)
+    const result = await client.TextModeration({
+      Content: Buffer.from(text).toString('base64'),
+      BizType: '',
+    })
+    return result.Suggestion === 'Pass'
+  } catch (err) {
+    console.error('文本审核失败，默认放行', err)
+    return true  // 审核接口故障时不影响用户提交
+  }
+}
+
+async function checkImageSafety(imageUrl: string): Promise<boolean> {
+  try {
+    const client = new ImsClient(clientConfig)
+    const result = await client.ImageModeration({
+      FileUrl: imageUrl,
+      BizType: '',
+    })
+    return result.Suggestion === 'Pass'
+  } catch (err) {
+    console.error('图片审核失败，默认放行', err)
+    return true
+  }
+}
 
 export const createSubmission = async (req: Request, res: Response) => {
   try {
@@ -13,6 +54,14 @@ export const createSubmission = async (req: Request, res: Response) => {
 
     if (!correctionCode) {
       return res.status(400).json({ error: '请输入批改码' })
+    }
+
+    // 文本内容审核
+    if (content) {
+      const textSafe = await checkTextSafety(content)
+      if (!textSafe) {
+        return res.status(400).json({ error: '提交内容含有违规信息，请修改后重新提交' })
+      }
     }
 
     const codeRecord = await prisma.correctionCode.findUnique({
@@ -32,7 +81,14 @@ export const createSubmission = async (req: Request, res: Response) => {
 
     if (imageFile) {
       imageUrl = await uploadToCOS(imageFile.buffer, imageFile.originalname, 'submissions/images')
+      // 图片内容审核（上传后用 URL 审核）
+      const fullImageUrl = `https://${process.env.COS_BUCKET}.cos.${process.env.COS_REGION}.myqcloud.com/${imageUrl}`
+      const imageSafe = await checkImageSafety(fullImageUrl)
+      if (!imageSafe) {
+        return res.status(400).json({ error: '上传图片含有违规内容，请重新上传' })
+      }
     }
+
     if (wordFile) {
       wordFileUrl = await uploadToCOS(wordFile.buffer, wordFile.originalname, 'submissions/words')
     }

@@ -1,7 +1,29 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
-import { uploadToCOS } from '../lib/cos'
-import puppeteer from 'puppeteer-core'
+import { uploadToCOS, getSignedUrl } from '../lib/cos'
+import puppeteer, { Browser } from 'puppeteer-core'
+
+let browserInstance: Browser | null = null
+
+async function getBrowser(): Promise<Browser> {
+  if (browserInstance && browserInstance.isConnected()) {
+    return browserInstance
+  }
+  browserInstance = await puppeteer.launch({
+    executablePath: '/usr/bin/chromium',
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process',
+    ],
+  })
+  return browserInstance
+}
 
 export const getEssays = async (req: Request, res: Response) => {
   try {
@@ -138,7 +160,8 @@ export const getAnnotatedPdf = async (req: Request, res: Response) => {
     if (!essay) return res.status(404).json({ error: '范文不存在' })
     if (!essay.annotatedPdfUrl) return res.status(404).json({ error: '该范文暂无批注版 PDF' })
 
-    res.redirect(essay.annotatedPdfUrl)
+    const signedUrl = await getSignedUrl(essay.annotatedPdfUrl)
+    res.redirect(signedUrl)
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: '下载失败' })
@@ -308,27 +331,15 @@ ${essay.question.content ? `
 </body>
 </html>`
 
-    const browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium',
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-      ],
-    })
+    const browser = await getBrowser()
     const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: 'networkidle0' })
+    await page.setContent(html, { waitUntil: 'domcontentloaded' })
     const pdfBuffer = await page.pdf({
       format: 'A4',
       margin: { top: '20mm', bottom: '20mm', left: '18mm', right: '18mm' },
       printBackground: true,
     })
-    await browser.close()
+    await page.close()
 
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="essay_${id}.pdf"`)

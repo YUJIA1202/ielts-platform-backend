@@ -8,7 +8,7 @@ const MAX_DEVICES = 2
 const MAX_FAIL_COUNT = 5
 const IP_MAX_REGISTERS = 3
 
-const smsCodes: Record<string, { code: string; expiresAt: number }> = {}
+const smsCodes: Record<string, { code: string; expiresAt: number; sentAt: number }> = {}
 const loginFailCounts: Record<string, { count: number; lockedAt?: number; lockLevel: number }> = {}
 
 function getLockDuration(lockLevel: number): number {
@@ -54,8 +54,16 @@ function setTokenCookie(res: Response, token: string) {
 export const sendCode = async (req: Request, res: Response) => {
   const { phone } = req.body
   if (!phone) { res.status(400).json({ error: '请输入手机号' }); return }
+
+  const existing = smsCodes[phone]
+  if (existing && Date.now() - existing.sentAt < 60 * 1000) {
+    const remaining = Math.ceil((60 * 1000 - (Date.now() - existing.sentAt)) / 1000)
+    res.status(429).json({ error: `请 ${remaining} 秒后再试` })
+    return
+  }
+
   const code = Math.floor(100000 + Math.random() * 900000).toString()
-  smsCodes[phone] = { code, expiresAt: Date.now() + 5 * 60 * 1000 }
+  smsCodes[phone] = { code, expiresAt: Date.now() + 5 * 60 * 1000, sentAt: Date.now() }
   console.log(`验证码 [${phone}]: ${code}`)
   res.json({ message: '验证码已发送' })
 }
