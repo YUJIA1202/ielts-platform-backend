@@ -11,6 +11,10 @@ const IP_MAX_REGISTERS = 3
 const smsCodes: Record<string, { code: string; expiresAt: number; sentAt: number }> = {}
 const loginFailCounts: Record<string, { count: number; lockedAt?: number; lockLevel: number }> = {}
 
+const SMS_IP_WINDOW_MS = 60 * 60 * 1000
+const SMS_IP_MAX = 10
+const smsIpCounts: Record<string, { count: number; windowStart: number }> = {}
+
 function getLockDuration(lockLevel: number): number {
   switch (lockLevel) {
     case 1: return 5 * 60 * 1000
@@ -55,15 +59,28 @@ export const sendCode = async (req: Request, res: Response) => {
   const { phone } = req.body
   if (!phone) { res.status(400).json({ error: '请输入手机号' }); return }
 
+  const ip = getClientIp(req)
+  const now = Date.now()
+  const ipRecord = smsIpCounts[ip]
+  if (ipRecord && now - ipRecord.windowStart < SMS_IP_WINDOW_MS) {
+    if (ipRecord.count >= SMS_IP_MAX) {
+      res.status(429).json({ error: '发送过于频繁，请稍后再试' })
+      return
+    }
+    ipRecord.count += 1
+  } else {
+    smsIpCounts[ip] = { count: 1, windowStart: now }
+  }
+
   const existing = smsCodes[phone]
-  if (existing && Date.now() - existing.sentAt < 60 * 1000) {
-    const remaining = Math.ceil((60 * 1000 - (Date.now() - existing.sentAt)) / 1000)
+  if (existing && now - existing.sentAt < 60 * 1000) {
+    const remaining = Math.ceil((60 * 1000 - (now - existing.sentAt)) / 1000)
     res.status(429).json({ error: `请 ${remaining} 秒后再试` })
     return
   }
 
   const code = Math.floor(100000 + Math.random() * 900000).toString()
-  smsCodes[phone] = { code, expiresAt: Date.now() + 5 * 60 * 1000, sentAt: Date.now() }
+  smsCodes[phone] = { code, expiresAt: now + 5 * 60 * 1000, sentAt: now }
   console.log(`验证码 [${phone}]: ${code}`)
   res.json({ message: '验证码已发送' })
 }
