@@ -160,8 +160,12 @@ export const getAnnotatedPdf = async (req: Request, res: Response) => {
     if (!essay) return res.status(404).json({ error: '范文不存在' })
     if (!essay.annotatedPdfUrl) return res.status(404).json({ error: '该范文暂无批注版 PDF' })
 
-    const signedUrl = await getSignedUrl(essay.annotatedPdfUrl)
-    res.redirect(signedUrl)
+ const signedUrl = await getSignedUrl(essay.annotatedPdfUrl)
+const fileRes = await fetch(signedUrl)
+const buffer = await fileRes.arrayBuffer()
+res.setHeader('Content-Type', 'application/pdf')
+res.setHeader('Content-Disposition', `attachment; filename="annotated_${id}.pdf"`)
+res.send(Buffer.from(buffer))
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: '下载失败' })
