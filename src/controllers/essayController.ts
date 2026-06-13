@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { uploadToCOS, getSignedUrl } from '../lib/cos'
 import puppeteer, { Browser } from 'puppeteer-core'
-
+import axios from 'axios'
 let browserInstance: Browser | null = null
 
 async function getBrowser(): Promise<Browser> {

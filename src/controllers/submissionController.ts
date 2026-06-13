@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
-import { uploadToCOS } from '../lib/cos'
+import { getSignedUrl, uploadToCOS } from '../lib/cos'
+import axios from 'axios'
 const tencentcloud = require('tencentcloud-sdk-nodejs-tms')
 const TmsClient = tencentcloud.tms.v20201229.Client
 const ImsClient = require('tencentcloud-sdk-nodejs-ims').ims.v20201229.Client
@@ -223,5 +224,32 @@ export const reviewSubmission = async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: '批改失败' })
+  }
+}
+
+export const getSubmissionReviewFile = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId
+    const role = (req as any).role
+    const id = parseInt(req.params.id as string)
+    const submission = await prisma.submission.findUnique({ where: { id } })
+
+    if (!submission) return res.status(404).json({ error: '提交记录不存在' })
+    if (role !== 'ADMIN' && submission.userId !== userId) {
+      return res.status(403).json({ error: '无权查看该批改文件' })
+    }
+
+    const fileKey = submission.reviewFileUrl || submission.feedbackUrl
+    if (!fileKey) return res.status(404).json({ error: '暂无批注文件' })
+
+    const sourceUrl = /^https?:\/\//.test(fileKey) ? fileKey : await getSignedUrl(fileKey)
+    const fileResponse = await axios.get(sourceUrl, { responseType: 'arraybuffer' })
+    const contentType = String(fileResponse.headers['content-type'] || 'application/pdf')
+    res.setHeader('Content-Type', contentType)
+    res.setHeader('Content-Disposition', `inline; filename="review_${id}.pdf"`)
+    res.send(Buffer.from(fileResponse.data))
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: '打开批改文件失败' })
   }
 }

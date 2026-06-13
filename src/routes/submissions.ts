@@ -6,6 +6,7 @@ import {
   getSubmissionById,
   getAllSubmissions,
   reviewSubmission,
+  getSubmissionReviewFile,
 } from '../controllers/submissionController'
 import { requireAuth, requireAdmin } from '../middleware/auth'
 
@@ -34,6 +35,7 @@ router.post(
 
 router.get('/my', requireAuth, getMySubmissions)
 router.get('/all', requireAuth, requireAdmin, getAllSubmissions)
+router.get('/:id/review-file', requireAuth, getSubmissionReviewFile)
 router.get('/:id', requireAuth, getSubmissionById)
 
 router.put(

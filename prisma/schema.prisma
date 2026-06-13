@@ -49,6 +49,7 @@ model User {
   questionViewLogs QuestionViewLog[]
   reflections      Reflection[]
   outlineViewLogs OutlineViewLog[]
+  examSessions     ExamSession[]
 }
 
 model LoginSession {
@@ -77,6 +78,33 @@ model Question {
   essays      ModelEssay[]
   submissions Submission[]
   viewLogs    QuestionViewLog[]
+  primaryExamSessions   ExamSession[] @relation("PrimaryExamQuestion")
+  secondaryExamSessions ExamSession[] @relation("SecondaryExamQuestion")
+}
+
+model ExamSession {
+  id                  Int               @id @default(autoincrement())
+  userId              Int
+  primaryQuestionId   Int
+  secondaryQuestionId Int?
+  mode                ExamMode
+  status              ExamSessionStatus @default(IN_PROGRESS)
+  primaryAnswer       String?           @db.LongText
+  secondaryAnswer     String?           @db.LongText
+  durationSeconds     Int
+  elapsedSeconds      Int               @default(0)
+  currentPart         Int               @default(1)
+  startedAt           DateTime          @default(now())
+  completedAt         DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  user              User      @relation(fields: [userId], references: [id])
+  primaryQuestion   Question  @relation("PrimaryExamQuestion", fields: [primaryQuestionId], references: [id])
+  secondaryQuestion Question? @relation("SecondaryExamQuestion", fields: [secondaryQuestionId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([status])
 }
 
 model ModelEssay {
@@ -278,4 +306,15 @@ enum CodeType {
   TASK2
   TASK1
   ANY
+}
+
+enum ExamMode {
+  SINGLE
+  MIXED
+}
+
+enum ExamSessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
 }
