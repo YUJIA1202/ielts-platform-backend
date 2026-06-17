@@ -19,6 +19,7 @@ import siteConfigRoutes     from './routes/siteConfig'
 import noticeRoutes         from './routes/notices'
 import outlineViewLogRoutes from './routes/outlineViewLog'
 import examSessionRoutes     from './routes/examSessions'
+import aiReviewRoutes        from './routes/aiReviews'
 dotenv.config({ override: false })
 
 const app  = express()
@@ -72,6 +73,7 @@ app.use('/api/site-config',      siteConfigRoutes)
 app.use('/api/notices',          noticeRoutes)
 app.use('/api/outline-view-log', outlineViewLogRoutes)
 app.use('/api/exam-sessions',    examSessionRoutes)
+app.use('/api/ai-reviews',        aiReviewRoutes)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', message: '服务器运行正常' })
