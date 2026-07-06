@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "nodemon --exec tsx src/index.ts",
     "build": "prisma generate && tsc",
-    "start": "npx prisma migrate deploy && node dist/index.js",
+    "start": "npx prisma migrate deploy && node dist/scripts/importQuestionBank.js && node dist/index.js",
     "rag:extract-experiment": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-extract-ai-review-experiment.ps1",
     "rag:import-experiment": "tsx scripts/import-ai-review-experiment.ts",
     "rag:cleanup-experiment": "tsx scripts/cleanup-ai-review-experiment.ts",

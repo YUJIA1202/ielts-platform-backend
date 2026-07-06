@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
-import prisma from '../src/prisma'
-import { normalizeQuestionSubtype } from '../src/utils/questionTaxonomy'
+import prisma from '../prisma'
+import { normalizeQuestionSubtype } from '../utils/questionTaxonomy'
 
 type QuestionBankRecord = {
   sourceKey: string
@@ -27,7 +27,7 @@ function asDate(value: string | null) {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-async function main() {
+export async function importQuestionBank() {
   const dataPath = path.resolve(process.cwd(), 'data/question-bank-final-revised.json')
   const records = JSON.parse(fs.readFileSync(dataPath, 'utf-8')) as QuestionBankRecord[]
   let created = 0
@@ -39,6 +39,7 @@ async function main() {
       where: { sourceKey: record.sourceKey },
       select: { id: true },
     })
+
     await prisma.question.upsert({
       where: { sourceKey: record.sourceKey },
       create: {
@@ -75,6 +76,7 @@ async function main() {
         similarGroup: record.similarGroup,
       },
     })
+
     if (existing) updated += 1
     else created += 1
   }
@@ -82,11 +84,13 @@ async function main() {
   console.log(`Question bank import complete: created=${created}, updated=${updated}, total=${records.length}`)
 }
 
-main()
-  .catch(error => {
-    console.error(error)
-    process.exit(1)
-  })
-  .finally(async () => {
-    await prisma.$disconnect()
-  })
+if (require.main === module) {
+  importQuestionBank()
+    .catch(error => {
+      console.error(error)
+      process.exit(1)
+    })
+    .finally(async () => {
+      await prisma.$disconnect()
+    })
+}
