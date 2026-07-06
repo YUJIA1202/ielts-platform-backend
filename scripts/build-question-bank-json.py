@@ -44,6 +44,11 @@ def normalize_subtype(value):
     return TASK2_SUBTYPE_ALIASES.get(subtype, subtype)
 
 
+def normalize_region(value):
+    region = clean(value)
+    return "" if region in {"1", "默认", "普通"} else region
+
+
 def parse_date(value):
     if value in (None, ""):
         return None, None, None
@@ -113,7 +118,7 @@ def main():
                 "year": year,
                 "month": month,
                 "testMode": clean(row[column_index["形式"]]),
-                "region": clean(row[column_index["地区"]]),
+        "region": normalize_region(row[column_index["地区"]]),
                 "similarGroup": clean(row[column_index["相似题"]]),
             }
         )
