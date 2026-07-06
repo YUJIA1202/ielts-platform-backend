@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import prisma from '../src/prisma'
+import { normalizeQuestionSubtype } from '../src/utils/questionTaxonomy'
 
 type QuestionBankRecord = {
   sourceKey: string
@@ -33,6 +34,7 @@ async function main() {
   let updated = 0
 
   for (const record of records) {
+    const subtype = normalizeQuestionSubtype(record.task, record.subtype)
     const existing = await prisma.question.findUnique({
       where: { sourceKey: record.sourceKey },
       select: { id: true },
@@ -41,7 +43,7 @@ async function main() {
       where: { sourceKey: record.sourceKey },
       create: {
         task: record.task,
-        subtype: record.subtype,
+        subtype,
         topic: record.topic,
         topicCategory: record.topicCategory,
         topicSubcategory: record.topicSubcategory,
@@ -58,7 +60,7 @@ async function main() {
       },
       update: {
         task: record.task,
-        subtype: record.subtype,
+        subtype,
         topic: record.topic,
         topicCategory: record.topicCategory,
         topicSubcategory: record.topicSubcategory,

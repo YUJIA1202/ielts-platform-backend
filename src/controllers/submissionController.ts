@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { getSignedUrl, uploadToCOS } from '../lib/cos'
 import axios from 'axios'
+import { normalizeQuestionSubtype } from '../utils/questionTaxonomy'
 const tencentcloud = require('tencentcloud-sdk-nodejs-tms')
 const TmsClient = tencentcloud.tms.v20201229.Client
 const ImsClient = require('tencentcloud-sdk-nodejs-ims').ims.v20201229.Client
@@ -132,7 +133,13 @@ export const getMySubmissions = async (req: Request, res: Response) => {
         correctionCode: { select: { code: true, type: true } },
       },
     })
-    res.json(submissions)
+    res.json(submissions.map(submission => ({
+      ...submission,
+      reviewSubtype: normalizeQuestionSubtype(submission.reviewTask, submission.reviewSubtype),
+      question: submission.question
+        ? { ...submission.question, subtype: normalizeQuestionSubtype(submission.question.task, submission.question.subtype) }
+        : submission.question,
+    })))
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: '获取提交列表失败' })
@@ -159,7 +166,13 @@ export const getSubmissionById = async (req: Request, res: Response) => {
       return res.status(403).json({ error: '无权限查看此记录' })
     }
 
-    res.json(submission)
+    res.json({
+      ...submission,
+      reviewSubtype: normalizeQuestionSubtype(submission.reviewTask, submission.reviewSubtype),
+      question: submission.question
+        ? { ...submission.question, subtype: normalizeQuestionSubtype(submission.question.task, submission.question.subtype) }
+        : submission.question,
+    })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: '获取提交详情失败' })
@@ -184,7 +197,16 @@ export const getAllSubmissions = async (req: Request, res: Response) => {
         correctionCode: { select: { code: true, type: true } },
       },
     })
-    res.json({ submissions, total })
+    res.json({
+      submissions: submissions.map(submission => ({
+        ...submission,
+        reviewSubtype: normalizeQuestionSubtype(submission.reviewTask, submission.reviewSubtype),
+        question: submission.question
+          ? { ...submission.question, subtype: normalizeQuestionSubtype(submission.question.task, submission.question.subtype) }
+          : submission.question,
+      })),
+      total,
+    })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: '获取提交列表失败' })
@@ -216,7 +238,7 @@ export const reviewSubmission = async (req: Request, res: Response) => {
         adminComment: adminComment || undefined,
         ...(reviewFileUrl && { reviewFileUrl }),
         ...(reviewTask    && { reviewTask }),
-        ...(reviewSubtype && { reviewSubtype }),
+        ...(reviewSubtype && { reviewSubtype: normalizeQuestionSubtype(reviewTask, reviewSubtype) }),
       },
     })
 

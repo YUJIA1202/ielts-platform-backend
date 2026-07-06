@@ -4,6 +4,7 @@ import {
   Prisma,
 } from '@prisma/client'
 import prisma from '../../prisma'
+import { normalizeQuestionSubtype } from '../../utils/questionTaxonomy'
 import { preprocessEssay } from './preprocessor'
 import { AI_REVIEW_PROMPT_VERSION } from './promptComposer'
 import { retrieveHierarchicalRagPlan } from './ragRetriever'
@@ -48,7 +49,7 @@ export async function createAndRunAiReview(input: {
       submissionId: submission?.id || null,
       sourceType: submission ? 'FROM_SUBMISSION' : 'DIRECT_AI',
       task: input.task || question?.task || null,
-      subtype: input.subtype || question?.subtype || null,
+      subtype: normalizeQuestionSubtype(input.task || question?.task, input.subtype || question?.subtype || null),
       topic: input.topic || question?.topic || null,
       questionText,
       questionImageUrl,

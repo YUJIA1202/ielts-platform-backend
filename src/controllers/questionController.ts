@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { uploadToCOS } from '../lib/cos'
+import { expandQuestionSubtypeFilter, normalizeQuestionSubtype } from '../utils/questionTaxonomy'
 
 function parseOptionalInt(value: unknown): number | null | undefined {
   if (value === undefined) return undefined
@@ -29,6 +30,12 @@ function appendKeywordSearch(where: any, keyword?: string) {
   where.AND = [...(where.AND || []), { OR: search }]
 }
 
+function appendSubtypeFilter(where: any, task: string | undefined, subtype?: string) {
+  if (!subtype) return
+  const candidates = expandQuestionSubtypeFilter(task, subtype)
+  where.AND = [...(where.AND || []), { OR: candidates.map(value => ({ subtype: value })) }]
+}
+
 export const getQuestions = async (req: Request, res: Response) => {
   const task = req.query.task as string | undefined
   const subtype = req.query.subtype as string | undefined
@@ -47,8 +54,8 @@ export const getQuestions = async (req: Request, res: Response) => {
   const where: any = {}
   if (year) where.year = parseInt(year)
   if (task) where.task = task
-  if (subtype) where.subtype = subtype
-  if (topic) where.OR = [{ topic }, { topicCategory: topic }]
+  appendSubtypeFilter(where, task, subtype)
+  if (topic) where.AND = [...(where.AND || []), { OR: [{ topic }, { topicCategory: topic }] }]
   if (topicCategory) where.topicCategory = topicCategory
   if (topicSubcategory) where.topicSubcategory = { contains: topicSubcategory }
   if (testMode) where.testMode = testMode
@@ -64,6 +71,11 @@ export const getQuestions = async (req: Request, res: Response) => {
     take: parseInt(limit),
   })
 
+  const normalizedQuestions = questions.map(question => ({
+    ...question,
+    subtype: normalizeQuestionSubtype(question.task, question.subtype),
+  }))
+
   let facets: any
   if (includeFacets) {
     const facetWhere: any = {}
@@ -72,6 +84,7 @@ export const getQuestions = async (req: Request, res: Response) => {
       where: facetWhere,
       select: {
         subtype: true,
+        task: true,
         topic: true,
         topicCategory: true,
         topicSubcategory: true,
@@ -90,7 +103,7 @@ export const getQuestions = async (req: Request, res: Response) => {
         .filter(Boolean),
     )
     facets = {
-      subtypes: unique(rows.map(row => row.subtype)),
+      subtypes: unique(rows.map(row => normalizeQuestionSubtype(row.task, row.subtype))),
       topics: unique(rows.map(row => row.topicCategory || row.topic)),
       topicSubcategories: unique(subTopics),
       years: unique(rows.map(row => row.year)).sort((a, b) => Number(b) - Number(a)),
@@ -99,7 +112,7 @@ export const getQuestions = async (req: Request, res: Response) => {
     }
   }
 
-  res.json({ questions, total, page: parseInt(page), limit: parseInt(limit), ...(facets && { facets }) })
+  res.json({ questions: normalizedQuestions, total, page: parseInt(page), limit: parseInt(limit), ...(facets && { facets }) })
 }
 
 export const getQuestionById = async (req: Request, res: Response) => {
@@ -112,7 +125,7 @@ export const getQuestionById = async (req: Request, res: Response) => {
     res.status(404).json({ error: '题目不存在' })
     return
   }
-  res.json(question)
+  res.json({ ...question, subtype: normalizeQuestionSubtype(question.task, question.subtype) })
 }
 
 export const createQuestion = async (req: Request, res: Response) => {
@@ -133,7 +146,7 @@ export const createQuestion = async (req: Request, res: Response) => {
   const question = await prisma.question.create({
     data: {
       task,
-      subtype,
+      subtype: normalizeQuestionSubtype(task, subtype),
       topic: topic || topicCategory,
       topicCategory: topicCategory || topic,
       topicSubcategory,
@@ -168,7 +181,7 @@ export const updateQuestion = async (req: Request, res: Response) => {
 
   const data: any = {}
   if (task !== undefined) data.task = task
-  if (subtype !== undefined) data.subtype = subtype
+  if (subtype !== undefined) data.subtype = normalizeQuestionSubtype(task, subtype)
   if (topic !== undefined) data.topic = topic
   if (topicCategory !== undefined) data.topicCategory = topicCategory
   if (topicSubcategory !== undefined) data.topicSubcategory = topicSubcategory

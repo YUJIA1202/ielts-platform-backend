@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { uploadToCOS, getSignedUrl } from '../lib/cos'
+import { expandQuestionSubtypeFilter, normalizeQuestionSubtype } from '../utils/questionTaxonomy'
 import puppeteer, { Browser } from 'puppeteer-core'
 import axios from 'axios'
 let browserInstance: Browser | null = null
@@ -43,7 +44,10 @@ export const getEssays = async (req: Request, res: Response) => {
     if (task || subtype || topic || year) {
       where.question = {}
       if (task) where.question.task = task
-      if (subtype) where.question.subtype = subtype
+      if (subtype) {
+        const candidates = expandQuestionSubtypeFilter(task, subtype)
+        where.question.OR = candidates.map(value => ({ subtype: value }))
+      }
       if (topic) where.question.topic = topic
       if (year) where.question.year = parseInt(year)
     }
@@ -64,7 +68,7 @@ export const getEssays = async (req: Request, res: Response) => {
     const result = essays.map(e => ({
       ...e,
       task: e.question.task,
-      subtype: e.question.subtype,
+      subtype: normalizeQuestionSubtype(e.question.task, e.question.subtype),
       topic: e.question.topic,
       questionContent: e.question.content,
       year: e.question.year,
@@ -129,7 +133,7 @@ export const getEssayById = async (req: Request, res: Response) => {
     res.json({
       ...essay,
       task: essay.question.task,
-      subtype: essay.question.subtype,
+      subtype: normalizeQuestionSubtype(essay.question.task, essay.question.subtype),
       topic: essay.question.topic,
       questionContent: essay.question.content,
       questionImageUrl: essay.question.imageUrl,

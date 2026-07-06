@@ -5,6 +5,7 @@ import {
   getAiReviewJobForUser,
   listAiReviewsForUser,
 } from '../services/ai/aiReviewService'
+import { normalizeQuestionSubtype } from '../utils/questionTaxonomy'
 
 export const createAiReviewRequest = async (req: Request, res: Response) => {
   try {
@@ -21,7 +22,7 @@ export const createAiReviewRequest = async (req: Request, res: Response) => {
       questionText: typeof questionText === 'string' ? questionText : null,
       essayText,
       task: task === 'TASK1' || task === 'TASK2' ? task : null,
-      subtype: typeof subtype === 'string' ? subtype : null,
+      subtype: typeof subtype === 'string' ? normalizeQuestionSubtype(task, subtype) : null,
       topic: typeof topic === 'string' ? topic : null,
     })
     res.json(result)
