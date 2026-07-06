@@ -80,6 +80,12 @@ export const getQuestions = async (req: Request, res: Response) => {
   if (includeFacets) {
     const facetWhere: any = {}
     if (task) facetWhere.task = task
+    appendSubtypeFilter(facetWhere, task, subtype)
+    if (topic) facetWhere.AND = [...(facetWhere.AND || []), { OR: [{ topic }, { topicCategory: topic }] }]
+    if (topicCategory) facetWhere.topicCategory = topicCategory
+    if (testMode) facetWhere.testMode = testMode
+    if (region) facetWhere.region = region
+    if (similarGroup) facetWhere.similarGroup = similarGroup
     const rows = await prisma.question.findMany({
       where: facetWhere,
       select: {
