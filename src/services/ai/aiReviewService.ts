@@ -1,16 +1,14 @@
 import {
-  AiModelCallStatus,
-  AiModelCallType,
   AiReviewJobStatus,
   AiReviewRequestStatus,
   Prisma,
 } from '@prisma/client'
 import prisma from '../../prisma'
 import { preprocessEssay } from './preprocessor'
-import { composeReviewPrompt, AI_REVIEW_PROMPT_VERSION } from './promptComposer'
-import { retrieveRagChunks } from './ragRetriever'
-import { generateReviewWithProvider } from './providers'
+import { AI_REVIEW_PROMPT_VERSION } from './promptComposer'
+import { retrieveHierarchicalRagPlan } from './ragRetriever'
 import { validateReviewOutput } from './reviewValidator'
+import { runMultiStageReviewPipeline } from './multiStageReviewPipeline'
 
 export async function createAndRunAiReview(input: {
   userId: number
@@ -30,6 +28,9 @@ export async function createAndRunAiReview(input: {
   const question = input.questionId
     ? await prisma.question.findUnique({ where: { id: input.questionId } })
     : null
+  if (input.questionId && !question) {
+    throw new Error('Question not found')
+  }
   const submission = input.submissionId
     ? await prisma.submission.findFirst({ where: { id: input.submissionId, userId: input.userId } })
     : null
@@ -122,58 +123,24 @@ export async function runAiReviewJob(jobId: number) {
   await ensureDefaultPromptVersion()
 
   await prisma.aiReviewJob.update({ where: { id: jobId }, data: { stage: 'retrieving' } })
-  const ragChunks = await retrieveRagChunks({
+  const ragPlan = await retrieveHierarchicalRagPlan({
     jobId,
     questionText: job.request.questionText,
     preprocessed,
-    topK: 6,
+    maxPromptChunks: 90,
   })
 
   await prisma.aiReviewJob.update({ where: { id: jobId }, data: { stage: 'calling_model' } })
-  const prompt = composeReviewPrompt({
+  const providerResult = await runMultiStageReviewPipeline({
+    userId: job.userId,
+    jobId,
     questionText: job.request.questionText,
-    essayText: job.request.essayText,
-    preprocessed,
-    ragChunks,
+    essay: preprocessed,
+    ragPlan,
   })
 
-  let providerResult
-  try {
-    providerResult = await generateReviewWithProvider({ prompt, preprocessed })
-    await prisma.aiModelCall.create({
-      data: {
-        userId: job.userId,
-        jobId,
-        callType: AiModelCallType.REVIEW,
-        provider: providerResult.provider,
-        model: providerResult.model,
-        promptVersion: AI_REVIEW_PROMPT_VERSION,
-        inputTokens: providerResult.inputTokens,
-        outputTokens: providerResult.outputTokens,
-        latencyMs: providerResult.latencyMs,
-        status: AiModelCallStatus.SUCCESS,
-      },
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Model call failed'
-    await prisma.aiModelCall.create({
-      data: {
-        userId: job.userId,
-        jobId,
-        callType: AiModelCallType.REVIEW,
-        provider: process.env.AI_PROVIDER || 'UNKNOWN',
-        model: process.env.AI_PROVIDER_MODEL || 'UNKNOWN',
-        promptVersion: AI_REVIEW_PROMPT_VERSION,
-        status: AiModelCallStatus.FAILED,
-        errorMessage: message,
-      },
-    })
-    throw error
-  }
-
   await prisma.aiReviewJob.update({ where: { id: jobId }, data: { stage: 'validating' } })
-  const sentenceIndexes = new Set(preprocessed.sentences.map(sentence => sentence.index))
-  const validated = validateReviewOutput(providerResult.output, sentenceIndexes)
+  const validated = validateReviewOutput(providerResult.output, preprocessed)
 
   await prisma.aiReviewJob.update({ where: { id: jobId }, data: { stage: 'saving' } })
   const review = await prisma.aiReview.create({
@@ -188,7 +155,7 @@ export async function runAiReviewJob(jobId: number) {
       provider: providerResult.provider,
       model: providerResult.model,
       promptVersion: AI_REVIEW_PROMPT_VERSION,
-      rawOutput: providerResult.rawOutput as Prisma.InputJsonValue,
+      rawOutput: providerResult.rawOutput as unknown as Prisma.InputJsonValue,
       scores: {
         create: validated.scores.map(score => ({
           dimension: score.dimension,
@@ -208,13 +175,21 @@ export async function runAiReviewJob(jobId: number) {
       },
       annotations: {
         create: validated.sentenceAnnotations.map(annotation => ({
+          paragraphIndex: annotation.paragraphIndex,
           sentenceIndex: annotation.sentenceIndex,
+          level: annotation.level,
           originalText: annotation.originalText,
+          anchorText: annotation.anchorText,
+          startOffset: annotation.startOffset,
+          endOffset: annotation.endOffset,
+          occurrence: annotation.occurrence,
+          locationStatus: annotation.locationStatus,
           issueType: annotation.issueType,
           subtype: annotation.subtype,
           severity: annotation.severity,
           explanation: annotation.explanation,
           suggestion: annotation.suggestion,
+          replacementText: annotation.replacementText,
           rubricDimension: annotation.rubricDimension,
         })),
       },
@@ -222,6 +197,12 @@ export async function runAiReviewJob(jobId: number) {
         create: validated.rewrites.map(rewrite => ({
           sentenceIndex: rewrite.sentenceIndex,
           paragraphIndex: rewrite.paragraphIndex,
+          level: rewrite.level,
+          operation: rewrite.operation,
+          anchorText: rewrite.anchorText,
+          startOffset: rewrite.startOffset,
+          endOffset: rewrite.endOffset,
+          occurrence: rewrite.occurrence,
           originalText: rewrite.originalText,
           rewrittenText: rewrite.rewrittenText,
           reason: rewrite.reason,
@@ -303,7 +284,7 @@ async function ensureDefaultPromptVersion() {
         kind: 'ReviewOutput',
         version: AI_REVIEW_PROMPT_VERSION,
       } as Prisma.InputJsonValue,
-      changelog: 'MVP structured IELTS review output.',
+      changelog: 'Hierarchical global, paragraph, and sentence retrieval with deduplicated evidence; scoring disabled.',
       isActive: true,
     },
   })
@@ -311,6 +292,8 @@ async function ensureDefaultPromptVersion() {
 
 export const aiReviewInclude = {
   request: true,
+  // Stage results are internal audit records and are not exposed through the user review endpoint.
+  job: { include: { snapshot: true } },
   scores: true,
   findings: true,
   annotations: { orderBy: [{ sentenceIndex: 'asc' as const }, { id: 'asc' as const }] },

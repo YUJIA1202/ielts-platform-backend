@@ -30,20 +30,39 @@ export function preprocessEssay(input: {
 }): PreprocessedEssay {
   const normalizedQuestion = normalizeText(input.questionText || '')
   const normalizedEssay = normalizeText(input.essayText)
-  const paragraphs = splitParagraphs(normalizedEssay)
+  const paragraphTexts = splitParagraphs(normalizedEssay)
   const sentences: PreprocessedSentence[] = []
-  const paragraphRecords: PreprocessedParagraph[] = paragraphs.map((paragraph, paragraphIndex) => {
+  let paragraphSearchOffset = 0
+  const paragraphRecords: PreprocessedParagraph[] = paragraphTexts.map((paragraph, paragraphIndex) => {
+    const paragraphStart = normalizedEssay.indexOf(paragraph, paragraphSearchOffset)
+    const safeParagraphStart = paragraphStart >= 0 ? paragraphStart : paragraphSearchOffset
+    const paragraphEnd = safeParagraphStart + paragraph.length
+    paragraphSearchOffset = paragraphEnd
     const localSentences = splitSentences(paragraph)
     const sentenceIndexes: number[] = []
+    let sentenceSearchOffset = 0
     for (const sentence of localSentences) {
       const index = sentences.length + 1
-      sentences.push({ index, text: sentence, paragraphIndex: paragraphIndex + 1 })
+      const localStart = paragraph.indexOf(sentence, sentenceSearchOffset)
+      const safeLocalStart = localStart >= 0 ? localStart : sentenceSearchOffset
+      const startOffset = safeParagraphStart + safeLocalStart
+      const endOffset = startOffset + sentence.length
+      sentences.push({
+        index,
+        text: sentence,
+        paragraphIndex: paragraphIndex + 1,
+        startOffset,
+        endOffset,
+      })
+      sentenceSearchOffset = safeLocalStart + sentence.length
       sentenceIndexes.push(index)
     }
     return {
       index: paragraphIndex + 1,
       text: paragraph,
       sentenceIndexes,
+      startOffset: safeParagraphStart,
+      endOffset: paragraphEnd,
     }
   })
 

@@ -1,7 +1,10 @@
 import {
+  AiAnnotationLevel,
+  AiAnnotationLocationStatus,
   AiFindingCategory,
   AiIssueSeverity,
   AiIssueType,
+  AiRevisionOperation,
   AiReviewScoreDimension,
   TaskType,
 } from '@prisma/client'
@@ -10,12 +13,16 @@ export interface PreprocessedSentence {
   index: number
   text: string
   paragraphIndex: number
+  startOffset: number
+  endOffset: number
 }
 
 export interface PreprocessedParagraph {
   index: number
   text: string
   sentenceIndexes: number[]
+  startOffset: number
+  endOffset: number
 }
 
 export interface PreprocessedEssay {
@@ -31,12 +38,30 @@ export interface PreprocessedEssay {
 
 export interface RagChunk {
   id: number
+  documentId: number
   chunkText: string
   chunkType: string
+  sourceType: string
+  documentTitle: string
   task: TaskType | null
   subtype: string | null
   topic: string | null
   score: number
+  semanticScore?: number | null
+}
+
+export type RagRetrievalStage = 'GLOBAL' | 'PARAGRAPH' | 'SENTENCE'
+
+export interface RagEvidenceGroup {
+  stage: RagRetrievalStage
+  targetIndex: number | null
+  targetText: string | null
+  chunks: RagChunk[]
+}
+
+export interface RagRetrievalPlan {
+  groups: RagEvidenceGroup[]
+  promptChunks: RagChunk[]
 }
 
 export interface ReviewScoreOutput {
@@ -55,19 +80,33 @@ export interface GlobalFindingOutput {
 }
 
 export interface SentenceAnnotationOutput {
-  sentenceIndex: number
+  paragraphIndex?: number | null
+  sentenceIndex: number | null
+  level: AiAnnotationLevel
   originalText: string
+  anchorText?: string | null
+  startOffset?: number | null
+  endOffset?: number | null
+  occurrence?: number | null
+  locationStatus: AiAnnotationLocationStatus
   issueType: AiIssueType
   subtype?: string | null
   severity: AiIssueSeverity
   explanation: string
   suggestion?: string | null
+  replacementText?: string | null
   rubricDimension?: AiReviewScoreDimension | null
 }
 
 export interface RewriteOutput {
   sentenceIndex?: number | null
   paragraphIndex?: number | null
+  level: AiAnnotationLevel
+  operation: AiRevisionOperation
+  anchorText?: string | null
+  startOffset?: number | null
+  endOffset?: number | null
+  occurrence?: number | null
   originalText: string
   rewrittenText: string
   reason?: string | null
@@ -88,4 +127,5 @@ export interface ComposePromptInput {
   essayText: string
   preprocessed: PreprocessedEssay
   ragChunks: RagChunk[]
+  ragGroups?: RagEvidenceGroup[]
 }

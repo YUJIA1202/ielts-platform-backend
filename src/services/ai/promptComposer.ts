@@ -1,29 +1,53 @@
-import { ComposePromptInput } from './types'
+import { ComposePromptInput, RagChunk } from './types'
 
-export const AI_REVIEW_PROMPT_VERSION = 'ai-review-mvp-v1'
+export const AI_REVIEW_PROMPT_VERSION = 'ai-review-multistage-v1'
 
 export function composeReviewPrompt(input: ComposePromptInput): string {
   const sentences = input.preprocessed.sentences
     .map(sentence => `${sentence.index}. ${sentence.text}`)
     .join('\n')
+  const evidenceIds = new Map<number, string>()
+  input.ragChunks.forEach((chunk, index) => evidenceIds.set(chunk.id, `E${index + 1}`))
 
-  const rag = input.ragChunks.length
-    ? input.ragChunks
-        .map((chunk, index) => `[RAG ${index + 1}] ${chunk.chunkType} ${chunk.task || ''} ${chunk.subtype || ''}\n${chunk.chunkText}`)
-        .join('\n\n')
-    : 'No retrieval chunks were found. Use IELTS writing assessment principles.'
+  const evidenceCatalog = input.ragChunks.length
+    ? input.ragChunks.map((chunk, index) => formatEvidence(chunk, index + 1)).join('\n\n')
+    : 'No retrieval evidence was found. Use established IELTS writing feedback principles.'
+  const retrievalMap = input.ragGroups?.length
+    ? input.ragGroups.map(group => {
+        const ids = group.chunks
+          .map(chunk => evidenceIds.get(chunk.id))
+          .filter(Boolean)
+          .join(', ')
+        return `${group.stage}${group.targetIndex === null ? '' : ` ${group.targetIndex}`}: ${ids || '(no unique prompt evidence)'}`
+      }).join('\n')
+    : 'GLOBAL: ' + input.ragChunks.map(chunk => evidenceIds.get(chunk.id)).filter(Boolean).join(', ')
 
   return `
-You are an IELTS Writing examiner and writing coach.
-Assess the essay according to IELTS Writing criteria, but produce coaching feedback that helps the learner revise.
+You are an IELTS Writing feedback specialist and writing coach.
+This experiment focuses on genuine writing problems, clear explanations, and useful rewrites. Do not assign band scores yet.
+
+Analysis procedure:
+1. GLOBAL: evaluate task response, position, organization, paragraph roles, and argument development.
+2. PARAGRAPH: inspect each paragraph's function, topic sentence, evidence, development, and transitions.
+3. SENTENCE: inspect grammar, vocabulary, collocation, clarity, and local logic sentence by sentence.
+4. SELF-CHECK: remove duplicate findings, reject unsupported criticism, preserve the writer's intended meaning, and check that every annotation points to the correct sentence.
 
 Rules:
 - Return JSON only. Do not wrap it in markdown.
 - Use the exact enum values shown in the schema.
-- Every sentence annotation must reference a sentenceIndex from the numbered sentences.
+- WORD, PHRASE, and SENTENCE annotations must reference a sentenceIndex. PARAGRAPH annotations may reference paragraphIndex only.
+- For every genuine word, phrase, sentence, or paragraph problem, return a separate annotation.
+- Set level to WORD, PHRASE, SENTENCE, or PARAGRAPH.
+- For WORD and PHRASE annotations, anchorText must be an exact substring of the numbered sentence. Do not calculate character offsets.
+- Use occurrence when the same anchorText appears more than once in the same sentence.
+- Put the corrected word or phrase in replacementText when a local replacement is possible.
 - Do not invent content not present in the essay.
 - Use concise Chinese explanations for feedback, with English rewrites.
-- Scores must be between 0 and 9 and can use .5.
+- Set overallBand to null and scores to an empty array. This experiment does not score the essay.
+- TEACHER_REVIEW and ERROR_LIBRARY evidence may contain an incorrect student sentence plus a teacher comment. Treat the student sentence as an error example, not a model expression.
+- MODEL_ESSAY evidence is a reference, not proof that the user's essay has the same quality.
+- Retrieval evidence is advisory. Apply it only when it genuinely matches the user's text.
+- Cite relevant evidence IDs such as E3 inside explanations when useful, but never force a citation for a direct and obvious language correction.
 
 Question:
 ${input.questionText || '(No question text provided)'}
@@ -36,30 +60,37 @@ Detected metadata:
 Numbered essay sentences:
 ${sentences || input.essayText}
 
-Relevant retrieved material:
-${rag}
+Hierarchical retrieval map:
+${retrievalMap}
+
+Deduplicated evidence catalog:
+${evidenceCatalog}
 
 Required JSON shape:
 {
-  "overallBand": 6.5,
-  "summary": "中文总体评价",
+  "overallBand": null,
+  "summary": "中文总体反馈",
   "priorityAdvice": "最优先的改进建议",
-  "scores": [
-    {"dimension":"OVERALL","score":6.5,"rationale":"...","evidence":"..."},
-    {"dimension":"TASK_RESPONSE","score":6.0,"rationale":"...","evidence":"..."},
-    {"dimension":"COHERENCE_COHESION","score":6.0,"rationale":"...","evidence":"..."},
-    {"dimension":"LEXICAL_RESOURCE","score":6.0,"rationale":"...","evidence":"..."},
-    {"dimension":"GRAMMAR_RANGE_ACCURACY","score":6.0,"rationale":"...","evidence":"..."}
-  ],
+  "scores": [],
   "globalFindings": [
     {"category":"TASK_RESPONSE","severity":"MEDIUM","title":"...","explanation":"...","suggestion":"..."}
   ],
   "sentenceAnnotations": [
-    {"sentenceIndex":1,"originalText":"...","issueType":"LOGIC","subtype":"development","severity":"MEDIUM","explanation":"...","suggestion":"...","rubricDimension":"TASK_RESPONSE"}
+    {"paragraphIndex":1,"sentenceIndex":1,"level":"PHRASE","originalText":"...","anchorText":"exact phrase from the sentence","occurrence":1,"issueType":"GRAMMAR","subtype":"subject_verb_agreement","severity":"MEDIUM","explanation":"...","suggestion":"...","replacementText":"corrected phrase","rubricDimension":"GRAMMAR_RANGE_ACCURACY"}
   ],
   "rewrites": [
-    {"sentenceIndex":1,"originalText":"...","rewrittenText":"...","reason":"..."}
+    {"paragraphIndex":1,"sentenceIndex":1,"level":"SENTENCE","operation":"REPLACE","anchorText":"exact original sentence","originalText":"...","rewrittenText":"...","reason":"..."}
   ]
 }
 `.trim()
+}
+
+function formatEvidence(chunk: RagChunk, index: number): string {
+  const text = chunk.chunkText.length > 1800
+    ? `${chunk.chunkText.slice(0, 1800)}...`
+    : chunk.chunkText
+  return (
+    `[E${index}] source=${chunk.sourceType} type=${chunk.chunkType} ` +
+    `task=${chunk.task || ''} subtype=${chunk.subtype || ''} document=${chunk.documentTitle}\n${text}`
+  )
 }

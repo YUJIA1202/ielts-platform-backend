@@ -8,12 +8,12 @@ datasource db {
 }
 
 model OutlineViewLog {
-  id         Int      @id @default(autoincrement())
-  userId     Int
-  date       String   // 格式 "2026-04-12"
-  count      Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  date      String // 格式 "2026-04-12"
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
 
@@ -48,12 +48,13 @@ model User {
   essayViewLogs    EssayViewLog[]
   questionViewLogs QuestionViewLog[]
   reflections      Reflection[]
-  outlineViewLogs OutlineViewLog[]
+  outlineViewLogs  OutlineViewLog[]
   examSessions     ExamSession[]
   aiReviewRequests AiReviewRequest[]
   aiReviewJobs     AiReviewJob[]
   aiReviews        AiReview[]
   aiModelCalls     AiModelCall[]
+  humanAudits      HumanReviewAudit[]
 }
 
 model LoginSession {
@@ -67,24 +68,37 @@ model LoginSession {
 }
 
 model Question {
-  id        Int      @id @default(autoincrement())
-  task      TaskType
-  subtype   String?
-  topic     String?
-  content   String   @db.Text
-  outline   String?  @db.Text
-  imageUrl  String?
-  source    String?
-  year      Int?
-  month     Int?
-  createdAt DateTime @default(now())
+  id                 Int       @id @default(autoincrement())
+  task               TaskType
+  subtype            String?
+  topic              String?
+  topicCategory      String?
+  topicSubcategory   String?   @db.Text
+  content            String    @db.Text
+  outline            String?   @db.Text
+  imageUrl           String?
+  source             String?
+  sourceKey          String?   @unique
+  sourceRow          Int?
+  examDate           DateTime?
+  testMode           String?
+  region             String?
+  similarGroup       String?
+  year               Int?
+  month              Int?
+  createdAt          DateTime  @default(now())
 
-  essays      ModelEssay[]
-  submissions Submission[]
-  viewLogs    QuestionViewLog[]
-  primaryExamSessions   ExamSession[] @relation("PrimaryExamQuestion")
-  secondaryExamSessions ExamSession[] @relation("SecondaryExamQuestion")
+  essays                ModelEssay[]
+  submissions           Submission[]
+  viewLogs              QuestionViewLog[]
+  primaryExamSessions   ExamSession[]     @relation("PrimaryExamQuestion")
+  secondaryExamSessions ExamSession[]     @relation("SecondaryExamQuestion")
   aiReviewRequests      AiReviewRequest[]
+
+  @@index([task, subtype])
+  @@index([task, topicCategory])
+  @@index([year, month])
+  @@index([examDate])
 }
 
 model ExamSession {
@@ -121,9 +135,9 @@ model ModelEssay {
   score           Float?
   createdAt       DateTime @default(now())
 
-  viewLogs EssayViewLog[]
-  question Question @relation(fields: [questionId], references: [id])
-  annotations     String?  @db.LongText
+  viewLogs    EssayViewLog[]
+  question    Question       @relation(fields: [questionId], references: [id])
+  annotations String?        @db.LongText
 }
 
 model Video {
@@ -178,33 +192,33 @@ model Submission {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
-  user           User            @relation(fields: [userId], references: [id])
-  question       Question?       @relation(fields: [questionId], references: [id])
-  correctionCode CorrectionCode?
-  reflections    Reflection[]
+  user             User              @relation(fields: [userId], references: [id])
+  question         Question?         @relation(fields: [questionId], references: [id])
+  correctionCode   CorrectionCode?
+  reflections      Reflection[]
   aiReviewRequests AiReviewRequest[]
   aiReviews        AiReview[]
 }
 
 model AiReviewRequest {
-  id             Int                   @id @default(autoincrement())
-  userId         Int
-  questionId     Int?
-  submissionId   Int?
-  sourceType     AiReviewSourceType    @default(DIRECT_AI)
-  task           TaskType?
-  subtype        String?
-  topic          String?
-  questionText   String?               @db.LongText
+  id               Int                   @id @default(autoincrement())
+  userId           Int
+  questionId       Int?
+  submissionId     Int?
+  sourceType       AiReviewSourceType    @default(DIRECT_AI)
+  task             TaskType?
+  subtype          String?
+  topic            String?
+  questionText     String?               @db.LongText
   questionImageUrl String?
-  essayText      String                @db.LongText
-  status         AiReviewRequestStatus @default(PENDING)
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @updatedAt
+  essayText        String                @db.LongText
+  status           AiReviewRequestStatus @default(PENDING)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
-  user       User        @relation(fields: [userId], references: [id])
-  question   Question?   @relation(fields: [questionId], references: [id])
-  submission Submission? @relation(fields: [submissionId], references: [id])
+  user       User          @relation(fields: [userId], references: [id])
+  question   Question?     @relation(fields: [questionId], references: [id])
+  submission Submission?   @relation(fields: [submissionId], references: [id])
   jobs       AiReviewJob[]
   reviews    AiReview[]
 
@@ -213,41 +227,42 @@ model AiReviewRequest {
 }
 
 model AiReviewJob {
-  id             Int               @id @default(autoincrement())
-  userId         Int
-  requestId      Int
-  status         AiReviewJobStatus @default(PENDING)
-  stage          String            @default("created")
-  errorCode      String?
-  errorMessage   String?           @db.Text
-  startedAt      DateTime?
-  completedAt    DateTime?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  id           Int               @id @default(autoincrement())
+  userId       Int
+  requestId    Int
+  status       AiReviewJobStatus @default(PENDING)
+  stage        String            @default("created")
+  errorCode    String?
+  errorMessage String?           @db.Text
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
-  user       User                  @relation(fields: [userId], references: [id])
-  request    AiReviewRequest       @relation(fields: [requestId], references: [id])
-  snapshot   AiReviewInputSnapshot?
-  review     AiReview?
-  modelCalls AiModelCall[]
+  user            User                   @relation(fields: [userId], references: [id])
+  request         AiReviewRequest        @relation(fields: [requestId], references: [id])
+  snapshot        AiReviewInputSnapshot?
+  review          AiReview?
+  modelCalls      AiModelCall[]
   retrievalEvents RetrievalEvent[]
+  stageResults    AiReviewStageResult[]
 
   @@index([userId, createdAt])
   @@index([status])
 }
 
 model AiReviewInputSnapshot {
-  id              Int      @id @default(autoincrement())
-  jobId           Int      @unique
-  normalizedQuestion String? @db.LongText
-  normalizedEssay String   @db.LongText
-  sentenceJson    Json
-  paragraphJson   Json
-  wordCount       Int
-  detectedTask    TaskType?
-  detectedSubtype String?
-  detectedTopic   String?
-  createdAt       DateTime @default(now())
+  id                 Int       @id @default(autoincrement())
+  jobId              Int       @unique
+  normalizedQuestion String?   @db.LongText
+  normalizedEssay    String    @db.LongText
+  sentenceJson       Json
+  paragraphJson      Json
+  wordCount          Int
+  detectedTask       TaskType?
+  detectedSubtype    String?
+  detectedTopic      String?
+  createdAt          DateTime  @default(now())
 
   job AiReviewJob @relation(fields: [jobId], references: [id])
 }
@@ -268,14 +283,15 @@ model AiReview {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  job        AiReviewJob     @relation(fields: [jobId], references: [id])
-  request    AiReviewRequest @relation(fields: [requestId], references: [id])
-  user       User            @relation(fields: [userId], references: [id])
-  submission Submission?     @relation(fields: [submissionId], references: [id])
-  scores     AiReviewScore[]
-  findings   AiGlobalFinding[]
+  job         AiReviewJob            @relation(fields: [jobId], references: [id])
+  request     AiReviewRequest        @relation(fields: [requestId], references: [id])
+  user        User                   @relation(fields: [userId], references: [id])
+  submission  Submission?            @relation(fields: [submissionId], references: [id])
+  scores      AiReviewScore[]
+  findings    AiGlobalFinding[]
   annotations AiSentenceAnnotation[]
-  rewrites   AiRewrite[]
+  rewrites    AiRewrite[]
+  audits      HumanReviewAudit[]
 
   @@index([userId, createdAt])
   @@index([requestId])
@@ -296,14 +312,14 @@ model AiReviewScore {
 }
 
 model AiGlobalFinding {
-  id          Int              @id @default(autoincrement())
+  id          Int               @id @default(autoincrement())
   reviewId    Int
   category    AiFindingCategory
-  severity    AiIssueSeverity  @default(MEDIUM)
+  severity    AiIssueSeverity   @default(MEDIUM)
   title       String
-  explanation String           @db.LongText
-  suggestion  String?          @db.LongText
-  createdAt   DateTime         @default(now())
+  explanation String            @db.LongText
+  suggestion  String?           @db.LongText
+  createdAt   DateTime          @default(now())
 
   review AiReview @relation(fields: [reviewId], references: [id])
 
@@ -311,33 +327,53 @@ model AiGlobalFinding {
 }
 
 model AiSentenceAnnotation {
-  id              Int              @id @default(autoincrement())
-  reviewId        Int
-  sentenceIndex   Int
-  originalText    String           @db.LongText
-  issueType       AiIssueType
-  subtype         String?
-  severity        AiIssueSeverity  @default(MEDIUM)
-  explanation     String           @db.LongText
-  suggestion      String?          @db.LongText
-  rubricDimension AiReviewScoreDimension?
-  createdAt       DateTime         @default(now())
+  id                 Int                        @id @default(autoincrement())
+  reviewId           Int
+  paragraphIndex     Int?
+  sentenceIndex      Int?
+  level              AiAnnotationLevel          @default(SENTENCE)
+  originalText       String                     @db.LongText
+  anchorText         String?                    @db.Text
+  anchorType         AnchorType?
+  startOffset        Int?
+  endOffset          Int?
+  occurrence         Int?
+  attachedTokenIndex Int?
+  sourceRef          String?
+  targetRef          String?
+  relationType       RelationType?
+  locationStatus     AiAnnotationLocationStatus @default(PENDING)
+  issueType          AiIssueType
+  subtype            String?
+  severity           AiIssueSeverity            @default(MEDIUM)
+  explanation        String                     @db.LongText
+  suggestion         String?                    @db.LongText
+  replacementText    String?                    @db.LongText
+  rubricDimension    AiReviewScoreDimension?
+  createdAt          DateTime                   @default(now())
 
   review AiReview @relation(fields: [reviewId], references: [id])
 
   @@index([reviewId, sentenceIndex])
   @@index([issueType])
+  @@index([anchorType])
 }
 
 model AiRewrite {
-  id             Int      @id @default(autoincrement())
+  id             Int                 @id @default(autoincrement())
   reviewId       Int
   sentenceIndex  Int?
   paragraphIndex Int?
-  originalText   String   @db.LongText
-  rewrittenText  String   @db.LongText
-  reason         String?  @db.LongText
-  createdAt      DateTime @default(now())
+  level          AiAnnotationLevel   @default(SENTENCE)
+  operation      AiRevisionOperation @default(REPLACE)
+  anchorText     String?             @db.Text
+  startOffset    Int?
+  endOffset      Int?
+  occurrence     Int?
+  originalText   String              @db.LongText
+  rewrittenText  String              @db.LongText
+  reason         String?             @db.LongText
+  createdAt      DateTime            @default(now())
 
   review AiReview @relation(fields: [reviewId], references: [id])
 
@@ -345,34 +381,55 @@ model AiRewrite {
 }
 
 model AiModelCall {
-  id           Int               @id @default(autoincrement())
-  userId       Int
-  jobId        Int?
-  callType     AiModelCallType
-  provider     String
-  model        String
+  id            Int               @id @default(autoincrement())
+  userId        Int
+  jobId         Int?
+  callType      AiModelCallType
+  provider      String
+  model         String
   promptVersion String?
-  inputTokens  Int?
-  outputTokens Int?
+  inputTokens   Int?
+  outputTokens  Int?
   estimatedCost Float?
-  latencyMs    Int?
-  status       AiModelCallStatus @default(SUCCESS)
-  errorMessage String?           @db.Text
-  createdAt    DateTime          @default(now())
+  latencyMs     Int?
+  status        AiModelCallStatus @default(SUCCESS)
+  errorMessage  String?           @db.Text
+  createdAt     DateTime          @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user User         @relation(fields: [userId], references: [id])
   job  AiReviewJob? @relation(fields: [jobId], references: [id])
 
   @@index([userId, createdAt])
   @@index([jobId])
 }
 
+model AiReviewStageResult {
+  id               Int                     @id @default(autoincrement())
+  jobId            Int
+  stage            AiReviewStage
+  targetIndex      Int?
+  attempt          Int                     @default(1)
+  provider         String
+  model            String
+  promptVersion    String?
+  inputJson        Json?
+  outputJson       Json?
+  validationStatus AiStageValidationStatus @default(PENDING)
+  errorMessage     String?                 @db.Text
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  job AiReviewJob @relation(fields: [jobId], references: [id])
+
+  @@index([jobId, stage, targetIndex])
+}
+
 model AiPromptTemplate {
-  id          Int      @id @default(autoincrement())
-  name        String
-  purpose     String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  name      String
+  purpose   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   versions AiPromptVersion[]
 
@@ -408,52 +465,77 @@ model AiProviderConfig {
 }
 
 model KnowledgeSource {
-  id          Int                 @id @default(autoincrement())
-  sourceType  KnowledgeSourceType
-  title       String
-  owner       String?
-  visibility  KnowledgeVisibility @default(PRIVATE)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  id         Int                 @id @default(autoincrement())
+  sourceType KnowledgeSourceType
+  title      String
+  owner      String?
+  visibility KnowledgeVisibility @default(PRIVATE)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
 
   documents KnowledgeDocument[]
 }
 
 model KnowledgeDocument {
-  id          Int      @id @default(autoincrement())
-  sourceId    Int
-  title       String
-  rawText     String   @db.LongText
-  fileUrl     String?
-  task        TaskType?
-  subtype     String?
-  topic       String?
-  band        Float?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        Int       @id @default(autoincrement())
+  sourceId  Int
+  title     String
+  rawText   String    @db.LongText
+  fileUrl   String?
+  task      TaskType?
+  subtype   String?
+  topic     String?
+  band      Float?
 
-  source KnowledgeSource @relation(fields: [sourceId], references: [id])
-  chunks KnowledgeChunk[]
+  // ── V6 Phase3: 数据质量标记 ──────────────────────────────────
+  // 内容角色（是什么）
+  contentRole        String?   // REVIEW_EXAMPLE | MODEL_ESSAY | MODEL_PARAGRAPH
+                               // TEACHING_NOTE | MIXED | NEEDS_REVIEW
+  // 完整性状态（有多完整）
+  completenessStatus String?   // COMPLETE | PARTIAL | MISSING_PROMPT
+                               // MULTI_ESSAY_DOCUMENT | MIXED_TASK_DOCUMENT | NEEDS_REVIEW
+  // 推断题型（不覆盖 task，task 冻结直到人工确认）
+  probableTask       TaskType?
+  // RAG 检索开关
+  allowedForRag      Boolean   @default(true)
+  // 评估集排除开关
+  excludeFromEval    Boolean   @default(false)
+  // 自动分类理由（| 分隔，便于人工审核）
+  qualityNotes       String?   @db.Text
+  // ─────────────────────────────────────────────────────────────
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  source      KnowledgeSource       @relation(fields: [sourceId], references: [id])
+  chunks      KnowledgeChunk[]
+  annotations KnowledgeAnnotation[]
 
   @@index([sourceId])
   @@index([task, subtype])
+  @@index([contentRole])
+  @@index([allowedForRag])
+  @@index([excludeFromEval])
 }
 
 model KnowledgeChunk {
-  id          Int                @id @default(autoincrement())
-  documentId  Int
-  chunkText   String             @db.LongText
-  chunkType   KnowledgeChunkType
-  task        TaskType?
-  subtype     String?
-  topic       String?
-  band        Float?
-  tokenCount  Int?
-  createdAt   DateTime           @default(now())
+  id         Int                @id @default(autoincrement())
+  documentId Int
+  chunkText  String             @db.LongText
+  chunkType  KnowledgeChunkType
+  task       TaskType?
+  subtype    String?
+  topic      String?
+  band       Float?
+  tokenCount Int?
+  createdAt  DateTime           @default(now())
 
-  document KnowledgeDocument @relation(fields: [documentId], references: [id])
-  embedding KnowledgeEmbedding?
+  document      KnowledgeDocument     @relation(fields: [documentId], references: [id])
+  embeddings    KnowledgeEmbedding[]
   retrievalHits RetrievalEventChunk[]
+  annotations   KnowledgeAnnotation[]
+  goldStandards RetrievalGoldStandard[]
+  hardNegatives RetrievalHardNegative[]
 
   @@index([documentId])
   @@index([task, subtype])
@@ -461,16 +543,25 @@ model KnowledgeChunk {
 }
 
 model KnowledgeEmbedding {
-  id          Int      @id @default(autoincrement())
-  chunkId     Int      @unique
-  provider    String
-  model       String
-  vectorJson  Json?
-  vectorRef   String?
-  dimensions  Int?
-  createdAt   DateTime @default(now())
+  id            Int                      @id @default(autoincrement())
+  chunkId       Int
+  provider      String
+  model         String
+  embeddingRole EmbeddingRole            @default(PRIMARY)
+  vectorJson    Json?
+  vectorRef     String?
+  dimensions    Int?
+  contentHash   String?
+  status        KnowledgeEmbeddingStatus @default(PENDING)
+  errorMessage  String?                  @db.Text
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
 
   chunk KnowledgeChunk @relation(fields: [chunkId], references: [id])
+
+  @@unique([chunkId, provider, model, embeddingRole])
+  @@index([provider, model, status])
+  @@index([embeddingRole])
 }
 
 model RetrievalEvent {
@@ -481,7 +572,7 @@ model RetrievalEvent {
   strategy  String   @default("keyword")
   createdAt DateTime @default(now())
 
-  job    AiReviewJob @relation(fields: [jobId], references: [id])
+  job    AiReviewJob           @relation(fields: [jobId], references: [id])
   chunks RetrievalEventChunk[]
 
   @@index([jobId])
@@ -504,14 +595,14 @@ model RetrievalEventChunk {
 }
 
 model Reflection {
-  id           Int         @id @default(autoincrement())
+  id           Int      @id @default(autoincrement())
   userId       Int
   title        String
-  content      String      @db.Text
+  content      String   @db.Text
   tags         String?
   submissionId Int?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   user       User        @relation(fields: [userId], references: [id])
   submission Submission? @relation(fields: [submissionId], references: [id])
@@ -581,10 +672,10 @@ model QuestionViewLog {
 // 告示板公告（可动态增删改）
 model Notice {
   id        Int      @id @default(autoincrement())
-  type      String   // "update" | "notice" | "tip"
+  type      String // "update" | "notice" | "tip"
   title     String
   content   String   @db.Text
-  date      String   // 显示用，如 "2026-03-20"
+  date      String // 显示用，如 "2026-03-20"
   sortOrder Int      @default(0)
   visible   Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -594,8 +685,8 @@ model Notice {
 // 通用站点配置（键值对，存所有其他可配置内容）
 model SiteConfig {
   id        Int      @id @default(autoincrement())
-  key       String   @unique  // 如 "about_intro", "stats", "teachers"
-  value     String   @db.LongText  // JSON 字符串
+  key       String   @unique // 如 "about_intro", "stats", "teachers"
+  value     String   @db.LongText // JSON 字符串
   updatedAt DateTime @updatedAt
 }
 
@@ -708,6 +799,48 @@ enum AiModelCallStatus {
   FAILED
 }
 
+enum AiReviewStage {
+  GLOBAL_ANALYSIS
+  PARAGRAPH_ANALYSIS
+  SENTENCE_ANALYSIS
+  MERGE
+  VERIFICATION
+  REPAIR
+}
+
+enum AiStageValidationStatus {
+  PENDING
+  VALID
+  FAILED
+}
+
+enum AiAnnotationLevel {
+  WORD
+  PHRASE
+  SENTENCE
+  PARAGRAPH
+}
+
+enum AiAnnotationLocationStatus {
+  PENDING
+  RESOLVED
+  UNRESOLVED
+}
+
+enum AiRevisionOperation {
+  REPLACE
+  INSERT
+  DELETE
+  REORDER
+}
+
+enum KnowledgeEmbeddingStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  STALE
+}
+
 enum KnowledgeSourceType {
   IELTS_RUBRIC
   MODEL_ESSAY
@@ -729,4 +862,260 @@ enum KnowledgeChunkType {
   ERROR_EXPLANATION
   TEMPLATE
   OTHER
+}
+
+// ─────────────────────────────────────────────
+// V6 新增枚举
+// ─────────────────────────────────────────────
+
+enum AnchorType {
+  SPAN          // 正常框住词/短语/句 (start≠end)
+  POINT_BEFORE  // 零宽，锚在某位置之前
+  POINT_AFTER   // 零宽，锚在某位置之后（如词尾空格）
+  RELATION      // 针对两个单元之间的关系（句间/段间）
+  TEACHER_NOTE  // 不对应原文位置的全局讲解
+}
+
+enum RelationType {
+  CAUSAL       // 因果
+  COHESION     // 衔接
+  CONTRAST     // 转折
+  PROGRESSION  // 递进
+}
+
+enum GoldStandardSource {
+  AUTO    // 按 issueType 自动匹配
+  MANUAL  // 人工确认
+}
+
+enum HardNegativeType {
+  WRONG_TASK
+  WRONG_ISSUE
+  TOO_GENERIC
+  MISLEADING
+  DUPLICATE
+}
+
+enum EmbeddingRole {
+  PRIMARY        // 默认主检索向量
+  STRUCTURE      // 结构通道专用
+  TOPIC          // 话题通道专用
+  LANGUAGE_ERROR // 语言错误通道专用
+}
+
+enum FusionMethod {
+  LINEAR
+  RRF
+  WEIGHTED_RRF
+}
+
+// ─────────────────────────────────────────────
+// V6 P0：教师批注结构化（地基中的地基）
+// ─────────────────────────────────────────────
+
+model KnowledgeAnnotation {
+  id                 Int                        @id @default(autoincrement())
+  documentId         Int
+  chunkId            Int?
+  commentId          String?
+  paragraphIndex     Int?
+  sentenceIndex      Int?
+  anchorType         AnchorType                 @default(SPAN)
+  anchorText         String?                    @db.Text
+  startOffset        Int?
+  endOffset          Int?
+  occurrence         Int?
+  attachedTokenIndex Int?
+  sourceRef          String?
+  targetRef          String?
+  relationType       RelationType?
+  issueType          String?
+  issueSubtype       String?
+  severity           AiIssueSeverity            @default(MEDIUM)
+  teacherFeedback    String?                    @db.Text
+  replacementText    String?                    @db.Text
+  locationStatus     AiAnnotationLocationStatus @default(PENDING)
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  document KnowledgeDocument @relation(fields: [documentId], references: [id])
+  chunk    KnowledgeChunk?   @relation(fields: [chunkId], references: [id])
+
+  @@index([documentId])
+  @@index([chunkId])
+  @@index([issueType])
+  @@index([anchorType])
+}
+
+// ─────────────────────────────────────────────
+// V6 P0：检索金标准（调参的标准答案）
+// ─────────────────────────────────────────────
+
+model RetrievalGoldStandard {
+  id              Int                @id @default(autoincrement())
+  essayId         Int
+  relevantChunkId Int
+  issueType       String?
+  channel         String?
+  relevanceGrade  Int                @default(2)
+  source          GoldStandardSource @default(AUTO)
+  confirmedBy     Int?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  chunk KnowledgeChunk @relation(fields: [relevantChunkId], references: [id])
+
+  @@unique([essayId, relevantChunkId])
+  @@index([essayId])
+  @@index([relevantChunkId])
+  @@index([issueType])
+}
+
+// ─────────────────────────────────────────────
+// V6 P0：实验可复现（每次实验唯一记录）
+// ─────────────────────────────────────────────
+
+model ExperimentRun {
+  id            Int          @id @default(autoincrement())
+  name          String?
+  gitCommit     String?
+  fusionMethod  FusionMethod @default(RRF)
+  configJson    Json?
+  topKGlobal    Int?
+  topKParagraph Int?
+  topKSentence  Int?
+  rrfK          Int?
+  mmrLambda     Float?
+  seed          Int?
+  status        String       @default("PENDING")
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime     @default(now())
+
+  evaluations RetrievalEvaluation[]
+
+  @@index([gitCommit])
+}
+
+// ─────────────────────────────────────────────
+// V6 P1：离线检索指标
+// ─────────────────────────────────────────────
+
+model RetrievalEvaluation {
+  id             Int      @id @default(autoincrement())
+  runId          Int
+  essayId        Int?
+  channel        String?
+  issueType      String?
+  recallAtK      Float?
+  ndcgAtK        Float?
+  precisionAtK   Float?
+  noiseRate      Float?
+  diversityScore Float?
+  topK           Int?
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now())
+
+  run ExperimentRun @relation(fields: [runId], references: [id])
+
+  @@index([runId])
+  @@index([essayId])
+}
+
+// ─────────────────────────────────────────────
+// V6 新增：检索硬负样本
+// ─────────────────────────────────────────────
+
+model RetrievalHardNegative {
+  id           Int                @id @default(autoincrement())
+  queryEssayId Int?
+  queryUnitId  String?
+  chunkId      Int
+  negativeType HardNegativeType
+  severity     AiIssueSeverity    @default(MEDIUM)
+  createdBy    Int?
+  source       GoldStandardSource @default(MANUAL)
+  notes        String?            @db.Text
+  createdAt    DateTime           @default(now())
+
+  chunk KnowledgeChunk @relation(fields: [chunkId], references: [id])
+
+  @@index([queryEssayId])
+  @@index([chunkId])
+}
+
+// ─────────────────────────────────────────────
+// V6 P0：数据导入批次（可重导机制）
+// ─────────────────────────────────────────────
+
+model ImportBatch {
+  id              Int      @id @default(autoincrement())
+  label           String?
+  sourceFileHash  String?
+  parserVersion   String?
+  cleaningVersion String?
+  isActive        Boolean  @default(true)
+  importedCount   Int?
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+
+  @@index([sourceFileHash])
+  @@index([isActive])
+}
+
+// ─────────────────────────────────────────────
+// V6 P0：评分规则版本化
+// ─────────────────────────────────────────────
+
+model RubricVersion {
+  id        Int       @id @default(autoincrement())
+  version   String    @unique
+  content   String    @db.LongText
+  taskType  TaskType?
+  changelog String?   @db.Text
+  isActive  Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  @@index([isActive])
+}
+
+// ─────────────────────────────────────────────
+// V6 P0：输出 JSON schema 版本化
+// ─────────────────────────────────────────────
+
+model OutputSchemaVersion {
+  id         Int      @id @default(autoincrement())
+  version    String   @unique
+  schemaJson Json
+  changelog  String?  @db.Text
+  isActive   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([isActive])
+}
+
+// ─────────────────────────────────────────────
+// V6 P2：人工盲评记录
+// ─────────────────────────────────────────────
+
+model HumanReviewAudit {
+  id                 Int      @id @default(autoincrement())
+  reviewId           Int
+  auditorId          Int
+  configLabel        String?
+  problemReality     Int?
+  locationAccuracy   Int?
+  explanationQuality Int?
+  suggestionQuality  Int?
+  teacherLikeness    Int?
+  studentClarity     Int?
+  overallScore       Float?
+  notes              String?  @db.Text
+  createdAt          DateTime @default(now())
+
+  review  AiReview @relation(fields: [reviewId], references: [id])
+  auditor User     @relation(fields: [auditorId], references: [id])
+
+  @@index([reviewId])
+  @@index([auditorId])
 }
