@@ -59,6 +59,7 @@ const loginLimiter = rateLimit({
 app.use('/api/auth/send-code', smsLimiter)
 app.use('/api/auth/login', loginLimiter)
 app.use('/api/auth/login-password', loginLimiter)
+app.use('/api/auth/reset-password', loginLimiter)
 
 app.use('/api/auth',             authRoutes)
 app.use('/api/questions',        questionRoutes)

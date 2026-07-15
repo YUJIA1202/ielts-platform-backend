@@ -1,9 +1,10 @@
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
+import prisma from '../prisma'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_in_production'
 
-export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   // 优先从 Cookie 读，兼容旧的 Authorization header
   let token = req.cookies?.token
 
@@ -21,8 +22,20 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
 
   try {
     const payload = jwt.verify(token, JWT_SECRET) as any
-    ;(req as any).userId = payload.userId
-    ;(req as any).role = payload.role
+    const session = await prisma.loginSession.findFirst({
+      where: { token, userId: payload.userId },
+      include: { user: { select: { id: true, role: true, banned: true } } },
+    })
+    if (!session) {
+      res.status(401).json({ error: '登录已失效，请重新登录' })
+      return
+    }
+    if (session.user.banned) {
+      res.status(403).json({ error: '账号已被停用' })
+      return
+    }
+    ;(req as any).userId = session.user.id
+    ;(req as any).role = session.user.role
     next()
   } catch {
     res.status(401).json({ error: 'token 无效或已过期' })

@@ -210,6 +210,42 @@ export const loginPassword = async (req: Request, res: Response) => {
   res.json({ token, user })
 }
 
+export const resetPassword = async (req: Request, res: Response) => {
+  const { phone, code, newPassword } = req.body
+
+  if (!phone || !code || !newPassword) {
+    res.status(400).json({ error: '手机号、验证码和新密码不能为空' })
+    return
+  }
+  if (typeof newPassword !== 'string' || newPassword.length < 8 || !/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+    res.status(400).json({ error: '密码至少 8 位，且必须同时包含字母和数字' })
+    return
+  }
+
+  const record = smsCodes[phone]
+  if (!record || record.code !== code || Date.now() > record.expiresAt) {
+    res.status(400).json({ error: '验证码错误或已过期' })
+    return
+  }
+
+  const user = await prisma.user.findUnique({ where: { phone } })
+  if (!user) {
+    res.status(404).json({ error: '用户不存在' })
+    return
+  }
+
+  const hashedPassword = await bcrypt.hash(newPassword, 10)
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { password: hashedPassword } }),
+    prisma.loginSession.deleteMany({ where: { userId: user.id } }),
+  ])
+
+  delete smsCodes[phone]
+  delete loginFailCounts[`fail:${phone}`]
+  res.clearCookie('token')
+  res.json({ success: true, message: '密码已重置，请重新登录' })
+}
+
 async function handleDeviceSession(userId: number, token: string, ip: string) {
   const sessions = await prisma.loginSession.findMany({
     where: { userId },
@@ -230,6 +266,11 @@ export const getMe = async (req: Request, res: Response) => {
 }
 
 export const logout = async (req: Request, res: Response) => {
+  const cookieToken = req.cookies?.token
+  const authHeader = req.headers.authorization
+  const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+  const token = cookieToken || headerToken
+  if (token) await prisma.loginSession.deleteMany({ where: { token } })
   res.clearCookie('token')
   res.json({ success: true })
 }
