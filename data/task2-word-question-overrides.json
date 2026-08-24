@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "task2-word-question-overrides/1.0.0",
+  "documents": {
+    "In modern society.docx": {
+      "questionText": "Some people think the technology has made life more complex, and the way to make it simple is stop using technology. To what extent do you agree or disagree?",
+      "sourceType": "MASTER_QUESTION_BANK",
+      "sourceKey": "ielts-task2-final-revised:354"
+    },
+    "Older people after retirement choose to spend mone.docx": {
+      "questionText": "Older people after retirement choose to spend money for themselves (e.g. holiday) rather than saving money for their children. Is it a positive or negative development?",
+      "sourceType": "EXPERIMENT_EXCEL",
+      "sourceKey": "rag-excel:Ce 6大_切分_final_重新核对版.xlsx"
+    },
+    "国际新闻.docx": {
+      "questionText": "Some people think that secondary school students should study international news as a school subject, but others argue that it would be a waste of valuable school time. Discuss both views and give your own opinion.",
+      "sourceType": "MASTER_QUESTION_BANK",
+      "sourceKey": "ielts-task2-final-revised:827"
+    },
+    "省钱.docx": {
+      "questionText": "It is better to save money than to spend it. How far do you agree with this statement?",
+      "sourceType": "EXPERIMENT_EXCEL",
+      "sourceKey": "rag-excel:Cio 1大_切分_final_修订版.xlsx"
+    }
+  }
+}

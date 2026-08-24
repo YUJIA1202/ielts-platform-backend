@@ -9,6 +9,7 @@ import {
   getSubmissionReviewFile,
 } from '../controllers/submissionController'
 import { requireAuth, requireAdmin } from '../middleware/auth'
+import { validateReviewFile, validateSubmissionFiles } from '../middleware/uploadValidation'
 
 const router = Router()
 
@@ -30,6 +31,7 @@ router.post(
     { name: 'image', maxCount: 1 },
     { name: 'wordFile', maxCount: 1 },
   ]),
+  validateSubmissionFiles,
   createSubmission
 )
 
@@ -43,6 +45,7 @@ router.put(
   requireAuth,
   requireAdmin,
   uploadReview.single('reviewFile'),
+  validateReviewFile,
   reviewSubmission
 )
 

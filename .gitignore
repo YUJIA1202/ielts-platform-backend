@@ -6,3 +6,12 @@ node_modules
 uploads/
 dist/
 data/ai-review-experiment/
+
+# Generated RAG manifests contain full student essays, teacher feedback, and
+# local source paths. Keep them in local/secure storage, not the public repo.
+data/rag-*/
+
+# Local analysis/runtime artifacts
+__pycache__/
+*.py[cod]
+.DS_Store

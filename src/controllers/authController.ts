@@ -2,8 +2,8 @@ import { Request, Response } from 'express'
 import prisma from '../prisma'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
+import { JWT_SECRET } from '../config/env'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_in_production'
 const MAX_DEVICES = 2
 const MAX_FAIL_COUNT = 5
 const IP_MAX_REGISTERS = 3
@@ -25,9 +25,7 @@ function getLockDuration(lockLevel: number): number {
 }
 
 function getClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for']
-  if (forwarded) return (Array.isArray(forwarded) ? forwarded[0] : forwarded).split(',')[0].trim()
-  return req.socket.remoteAddress || 'unknown'
+  return req.ip || req.socket.remoteAddress || 'unknown'
 }
 
 function recordFailure(key: string): { count: number; locked: boolean; lockMinutes: number } {
@@ -81,7 +79,7 @@ export const sendCode = async (req: Request, res: Response) => {
 
   const code = Math.floor(100000 + Math.random() * 900000).toString()
   smsCodes[phone] = { code, expiresAt: now + 5 * 60 * 1000, sentAt: now }
-  console.log(`验证码 [${phone}]: ${code}`)
+  if (process.env.NODE_ENV !== 'production') console.log(`验证码 [${phone}]: ${code}`)
   res.json({ message: '验证码已发送' })
 }
 

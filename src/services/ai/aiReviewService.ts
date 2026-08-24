@@ -10,6 +10,8 @@ import { AI_REVIEW_PROMPT_VERSION } from './promptComposer'
 import { retrieveHierarchicalRagPlan } from './ragRetriever'
 import { validateReviewOutput } from './reviewValidator'
 import { runMultiStageReviewPipeline } from './multiStageReviewPipeline'
+import { buildAiReviewPresentation } from './aiReviewPresenter'
+import { PreprocessedEssay, RagChunk, RagRetrievalPlan, RagRetrievalStage } from './types'
 
 export async function createAndRunAiReview(input: {
   userId: number
@@ -94,42 +96,49 @@ export async function createAndRunAiReview(input: {
 export async function runAiReviewJob(jobId: number) {
   const job = await prisma.aiReviewJob.findUnique({
     where: { id: jobId },
-    include: { request: true },
+    include: { request: true, snapshot: true },
   })
   if (!job) throw new Error('AI review job not found')
 
-  await prisma.aiReviewJob.update({ where: { id: jobId }, data: { stage: 'preprocessing' } })
-  const preprocessed = preprocessEssay({
-    questionText: job.request.questionText,
-    essayText: job.request.essayText,
-    task: job.request.task,
-    subtype: job.request.subtype,
-    topic: job.request.topic,
-  })
+  await prisma.$transaction([
+    prisma.aiReviewJob.update({ where: { id: jobId }, data: { status: AiReviewJobStatus.RUNNING, stage: 'preprocessing', errorCode: null, errorMessage: null } }),
+    prisma.aiReviewRequest.update({ where: { id: job.requestId }, data: { status: AiReviewRequestStatus.PROCESSING } }),
+  ])
+  const preprocessed = job.snapshot
+    ? preprocessedFromSnapshot(job.snapshot)
+    : preprocessEssay({
+        questionText: job.request.questionText,
+        essayText: job.request.essayText,
+        task: job.request.task,
+        subtype: job.request.subtype,
+        topic: job.request.topic,
+      })
 
-  await prisma.aiReviewInputSnapshot.create({
-    data: {
-      jobId,
-      normalizedQuestion: preprocessed.normalizedQuestion,
-      normalizedEssay: preprocessed.normalizedEssay,
-      sentenceJson: preprocessed.sentences as unknown as Prisma.InputJsonValue,
-      paragraphJson: preprocessed.paragraphs as unknown as Prisma.InputJsonValue,
-      wordCount: preprocessed.wordCount,
-      detectedTask: preprocessed.detectedTask,
-      detectedSubtype: preprocessed.detectedSubtype,
-      detectedTopic: preprocessed.detectedTopic,
-    },
-  })
+  if (!job.snapshot) {
+    await prisma.aiReviewInputSnapshot.create({
+      data: {
+        jobId,
+        normalizedQuestion: preprocessed.normalizedQuestion,
+        normalizedEssay: preprocessed.normalizedEssay,
+        sentenceJson: preprocessed.sentences as unknown as Prisma.InputJsonValue,
+        paragraphJson: preprocessed.paragraphs as unknown as Prisma.InputJsonValue,
+        wordCount: preprocessed.wordCount,
+        detectedTask: preprocessed.detectedTask,
+        detectedSubtype: preprocessed.detectedSubtype,
+        detectedTopic: preprocessed.detectedTopic,
+      },
+    })
+  }
 
   await ensureDefaultPromptVersion()
 
   await prisma.aiReviewJob.update({ where: { id: jobId }, data: { stage: 'retrieving' } })
-  const ragPlan = await retrieveHierarchicalRagPlan({
-    jobId,
-    questionText: job.request.questionText,
-    preprocessed,
-    maxPromptChunks: 90,
-  })
+  const ragPlan = await loadExistingRagPlan(jobId) || await retrieveHierarchicalRagPlan({
+      jobId,
+      questionText: job.request.questionText,
+      preprocessed,
+      maxPromptChunks: 90,
+    })
 
   await prisma.aiReviewJob.update({ where: { id: jobId }, data: { stage: 'calling_model' } })
   const providerResult = await runMultiStageReviewPipeline({
@@ -199,6 +208,7 @@ export async function runAiReviewJob(jobId: number) {
           sentenceIndex: rewrite.sentenceIndex,
           paragraphIndex: rewrite.paragraphIndex,
           level: rewrite.level,
+          rewriteLayer: rewrite.rewriteLayer,
           operation: rewrite.operation,
           anchorText: rewrite.anchorText,
           startOffset: rewrite.startOffset,
@@ -226,7 +236,7 @@ export async function runAiReviewJob(jobId: number) {
     data: { status: AiReviewRequestStatus.COMPLETED },
   })
 
-  return review
+  return withAiReviewPresentation(review)
 }
 
 export async function getAiReviewForUser(reviewId: number, userId: number, role?: string) {
@@ -238,7 +248,7 @@ export async function getAiReviewForUser(reviewId: number, userId: number, role?
   if (role !== 'ADMIN' && review.userId !== userId) {
     throw new Error('Forbidden')
   }
-  return review
+  return withAiReviewPresentation(review)
 }
 
 export async function getAiReviewJobForUser(jobId: number, userId: number, role?: string) {
@@ -280,12 +290,12 @@ async function ensureDefaultPromptVersion() {
     create: {
       templateId: template.id,
       version: AI_REVIEW_PROMPT_VERSION,
-      content: 'See src/services/ai/promptComposer.ts for composed prompt template.',
+      content: 'See src/services/ai/stagePromptComposer.ts for the active multi-stage prompt templates.',
       outputSchemaJson: {
         kind: 'ReviewOutput',
         version: AI_REVIEW_PROMPT_VERSION,
       } as Prisma.InputJsonValue,
-      changelog: 'Hierarchical global, paragraph, and sentence retrieval with deduplicated evidence; scoring disabled.',
+      changelog: 'Hierarchical canonical-aware RAG with TR/CC/LR/GRA scoring, untrusted-input isolation, paragraph dimensions, layered rewrites, verification, repair, and final location gates.',
       isActive: true,
     },
   })
@@ -299,4 +309,76 @@ export const aiReviewInclude = {
   findings: true,
   annotations: { orderBy: [{ sentenceIndex: 'asc' as const }, { id: 'asc' as const }] },
   rewrites: { orderBy: [{ sentenceIndex: 'asc' as const }, { id: 'asc' as const }] },
+}
+
+function withAiReviewPresentation<T extends Record<string, any>>(review: T) {
+  return {
+    ...review,
+    presentation: buildAiReviewPresentation(review as any),
+  }
+}
+
+function preprocessedFromSnapshot(snapshot: {
+  normalizedQuestion: string | null
+  normalizedEssay: string
+  sentenceJson: Prisma.JsonValue
+  paragraphJson: Prisma.JsonValue
+  wordCount: number
+  detectedTask: any
+  detectedSubtype: string | null
+  detectedTopic: string | null
+}): PreprocessedEssay {
+  return {
+    normalizedQuestion: snapshot.normalizedQuestion,
+    normalizedEssay: snapshot.normalizedEssay,
+    sentences: snapshot.sentenceJson as unknown as PreprocessedEssay['sentences'],
+    paragraphs: snapshot.paragraphJson as unknown as PreprocessedEssay['paragraphs'],
+    wordCount: snapshot.wordCount,
+    detectedTask: snapshot.detectedTask,
+    detectedSubtype: snapshot.detectedSubtype,
+    detectedTopic: snapshot.detectedTopic,
+  }
+}
+
+async function loadExistingRagPlan(jobId: number): Promise<RagRetrievalPlan | null> {
+  const events = await prisma.retrievalEvent.findMany({
+    where: { jobId },
+    orderBy: { id: 'asc' },
+    include: {
+      chunks: {
+        orderBy: { rank: 'asc' },
+        include: { chunk: { include: { document: { include: { source: true } } } } },
+      },
+    },
+  })
+  if (!events.length) return null
+  const groups: RagRetrievalPlan['groups'] = []
+  const promptChunks = new Map<number, RagChunk>()
+  for (const event of events) {
+    let query: { stage?: RagRetrievalStage; targetIndex?: number | null } = {}
+    try { query = JSON.parse(event.query) } catch { /* ignore malformed legacy query */ }
+    if (!query.stage || !['GLOBAL', 'PARAGRAPH', 'SENTENCE'].includes(query.stage)) continue
+    const chunks = event.chunks.map(hit => ({
+      id: hit.chunk.id,
+      documentId: hit.chunk.documentId,
+      chunkText: hit.chunk.chunkText,
+      chunkType: hit.chunk.chunkType,
+      sourceType: hit.chunk.document.source.sourceType,
+      documentTitle: hit.chunk.document.title,
+      task: hit.chunk.task,
+      subtype: hit.chunk.subtype,
+      topic: hit.chunk.topic,
+      score: hit.similarityScore ?? 0,
+    }))
+    groups.push({
+      stage: query.stage,
+      targetIndex: query.targetIndex ?? null,
+      targetText: null,
+      chunks,
+    })
+    event.chunks.forEach((hit, index) => {
+      if (hit.usedInPrompt) promptChunks.set(hit.chunk.id, chunks[index])
+    })
+  }
+  return groups.length ? { groups, promptChunks: Array.from(promptChunks.values()) } : null
 }

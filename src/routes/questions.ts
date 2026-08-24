@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import multer from 'multer'
-import { getQuestions, getQuestionById, createQuestion, updateQuestion, deleteQuestion } from '../controllers/questionController'
+import { getQuestions, getQuestionById, getQuestionSummaryById, createQuestion, updateQuestion, deleteQuestion } from '../controllers/questionController'
 import { requireAuth, requireAdmin } from '../middleware/auth'
+import { validateImageFile } from '../middleware/uploadValidation'
 
 const router = Router()
 
@@ -18,9 +19,10 @@ const upload = multer({
 })
 
 router.get('/', getQuestions)
+router.get('/v2/:id', getQuestionSummaryById)
 router.get('/:id', getQuestionById)
-router.post('/', requireAuth, requireAdmin, upload.single('image'), createQuestion)
-router.put('/:id', requireAuth, requireAdmin, upload.single('image'), updateQuestion)
+router.post('/', requireAuth, requireAdmin, upload.single('image'), validateImageFile, createQuestion)
+router.put('/:id', requireAuth, requireAdmin, upload.single('image'), validateImageFile, updateQuestion)
 router.delete('/:id', requireAuth, requireAdmin, deleteQuestion)
 
 export default router

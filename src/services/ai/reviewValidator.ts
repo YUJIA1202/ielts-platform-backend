@@ -5,6 +5,7 @@ import {
   AiIssueSeverity,
   AiIssueType,
   AiRevisionOperation,
+  AiRewriteLayer,
   AiReviewScoreDimension,
 } from '@prisma/client'
 import { PreprocessedEssay, ReviewOutput } from './types'
@@ -15,6 +16,7 @@ const issueTypes = new Set(Object.values(AiIssueType))
 const severities = new Set(Object.values(AiIssueSeverity))
 const annotationLevels = new Set(Object.values(AiAnnotationLevel))
 const revisionOperations = new Set(Object.values(AiRevisionOperation))
+const rewriteLayers = new Set(Object.values(AiRewriteLayer))
 
 export function validateReviewOutput(value: unknown, essay: PreprocessedEssay): ReviewOutput {
   if (!value || typeof value !== 'object') throw new Error('AI output must be an object')
@@ -69,7 +71,9 @@ function validateAnnotation(item: any, index: number, essay: PreprocessedEssay) 
     throw new Error(`sentenceAnnotations[${index}].paragraphIndex does not match input paragraphs`)
   }
 
-  const originalText = requiredString(item.originalText, `sentenceAnnotations[${index}].originalText`)
+  // sentenceIndex is the canonical anchor; recover the full source sentence when
+  // compatible providers omit the redundant originalText echo.
+  const originalText = requiredString(item.originalText || sentence?.text, `sentenceAnnotations[${index}].originalText`)
   const anchorText = optionalString(item.anchorText) || (level === AiAnnotationLevel.SENTENCE ? originalText : null)
   const occurrence = normalizeOccurrence(item.occurrence)
   const location = resolveLocation({ essay, sentence, paragraph, anchorText, occurrence, level })
@@ -106,7 +110,10 @@ function validateRewrite(item: any, index: number, essay: PreprocessedEssay) {
   const paragraph = paragraphIndex == null ? null : essay.paragraphs.find(candidate => candidate.index === paragraphIndex) || null
   if (paragraphIndex != null && !paragraph) throw new Error(`rewrites[${index}].paragraphIndex does not match input paragraphs`)
 
-  const originalText = requiredString(item.originalText, `rewrites[${index}].originalText`)
+  const originalText = requiredString(
+    item.originalText || sentence?.text || paragraph?.text,
+    `rewrites[${index}].originalText`,
+  )
   const anchorText = optionalString(item.anchorText) || originalText
   const occurrence = normalizeOccurrence(item.occurrence)
   const location = resolveLocation({ essay, sentence, paragraph, anchorText, occurrence, level })
@@ -117,6 +124,7 @@ function validateRewrite(item: any, index: number, essay: PreprocessedEssay) {
     sentenceIndex,
     paragraphIndex,
     level,
+    rewriteLayer: rewriteLayerValue(item.rewriteLayer, level, `rewrites[${index}].rewriteLayer`),
     operation,
     anchorText,
     startOffset: operationLocation.startOffset,
@@ -126,6 +134,24 @@ function validateRewrite(item: any, index: number, essay: PreprocessedEssay) {
     rewrittenText: requiredString(item.rewrittenText, `rewrites[${index}].rewrittenText`),
     reason: optionalString(item.reason),
   }
+}
+
+function rewriteLayerValue(value: unknown, level: AiAnnotationLevel, path: string): AiRewriteLayer {
+  if (value == null || value === '') {
+    return level === AiAnnotationLevel.PARAGRAPH ? AiRewriteLayer.PARAGRAPH : AiRewriteLayer.LANGUAGE
+  }
+  if (typeof value !== 'string') throw new Error(`${path} is invalid`)
+  const normalized = value.trim().toUpperCase().replace(/[\s-]+/g, '_')
+  const aliases: Record<string, AiRewriteLayer> = {
+    LOGIC: AiRewriteLayer.COHERENCE,
+    COHESION: AiRewriteLayer.COHERENCE,
+    TASK_RESPONSE: AiRewriteLayer.TASK,
+    TR: AiRewriteLayer.TASK,
+    PARAGRAPH_LEVEL: AiRewriteLayer.PARAGRAPH,
+  }
+  const candidate = aliases[normalized] || normalized
+  if (!rewriteLayers.has(candidate)) throw new Error(`${path} is invalid: ${value}`)
+  return candidate as AiRewriteLayer
 }
 
 function resolveLocation(input: {
@@ -240,6 +266,14 @@ function scoreDimensionValue(value: unknown, path: string): AiReviewScoreDimensi
     GRAMMATICAL_RANGE_ACCURACY: AiReviewScoreDimension.GRAMMAR_RANGE_ACCURACY,
     GRAMMATICAL_RANGE_AND_ACCURACY: AiReviewScoreDimension.GRAMMAR_RANGE_ACCURACY,
     GRAMMAR_RANGE_AND_ACCURACY: AiReviewScoreDimension.GRAMMAR_RANGE_ACCURACY,
+    TASK_RESPONSE_ISSUE: AiReviewScoreDimension.TASK_RESPONSE,
+    LOGIC: AiReviewScoreDimension.COHERENCE_COHESION,
+    COHESION: AiReviewScoreDimension.COHERENCE_COHESION,
+    STRUCTURE: AiReviewScoreDimension.COHERENCE_COHESION,
+    VOCABULARY: AiReviewScoreDimension.LEXICAL_RESOURCE,
+    LANGUAGE: AiReviewScoreDimension.LEXICAL_RESOURCE,
+    STYLE: AiReviewScoreDimension.LEXICAL_RESOURCE,
+    GRAMMAR: AiReviewScoreDimension.GRAMMAR_RANGE_ACCURACY,
   }
   const candidate = aliases[normalized] || normalized
   if (!scoreDimensions.has(candidate)) throw new Error(`${path} is invalid: ${value}`)

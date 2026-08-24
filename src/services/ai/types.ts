@@ -5,6 +5,7 @@ import {
   AiIssueSeverity,
   AiIssueType,
   AiRevisionOperation,
+  AiRewriteLayer,
   AiReviewScoreDimension,
   TaskType,
 } from '@prisma/client'
@@ -48,6 +49,7 @@ export interface RagChunk {
   topic: string | null
   score: number
   semanticScore?: number | null
+  rerankScore?: number | null
 }
 
 export type RagRetrievalStage = 'GLOBAL' | 'PARAGRAPH' | 'SENTENCE'
@@ -102,6 +104,7 @@ export interface RewriteOutput {
   sentenceIndex?: number | null
   paragraphIndex?: number | null
   level: AiAnnotationLevel
+  rewriteLayer?: AiRewriteLayer | null
   operation: AiRevisionOperation
   anchorText?: string | null
   startOffset?: number | null

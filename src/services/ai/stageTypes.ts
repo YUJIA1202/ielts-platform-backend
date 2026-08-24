@@ -1,7 +1,9 @@
-import { AiFindingCategory, AiIssueSeverity } from '@prisma/client'
-import { SentenceAnnotationOutput, RewriteOutput } from './types'
+import { AiFindingCategory, AiIssueSeverity, AiReviewScoreDimension } from '@prisma/client'
+import { ReviewScoreOutput, SentenceAnnotationOutput, RewriteOutput } from './types'
 
 export interface GlobalAnalysisOutput {
+  overallBand: number | null
+  scores: ReviewScoreOutput[]
   summary: string
   priorityAdvice: string
   taskFulfilment: string
@@ -18,9 +20,19 @@ export interface GlobalAnalysisOutput {
   paragraphRoles: Array<{ paragraphIndex: number; intendedRole: string; effectiveness: string }>
 }
 
+export interface DimensionDeepDiveOutput {
+  dimension: AiReviewScoreDimension
+  score: number | null
+  longEvaluation: string
+}
+
 export interface ParagraphAnalysisOutput {
   paragraphIndex: number
   function: string
+  tr: string
+  cc: string
+  lr: string
+  gra: string
   topicSentence: string
   development: string
   cohesion: string
@@ -40,6 +52,14 @@ export interface ParagraphBatchAnalysisOutput {
 
 export interface SentenceBatchAnalysisOutput {
   sentenceIndexes: number[]
+  sentenceReviews: Array<{
+    sentenceIndex: number
+    overall: string
+    tr: string
+    cc: string
+    lr: string
+    gra: string
+  }>
   annotations: SentenceAnnotationOutput[]
   rewrites: RewriteOutput[]
 }
@@ -52,4 +72,18 @@ export interface VerificationOutput {
   contradictoryFindings: string[]
   revisionProblems: string[]
   repairInstructions: string[]
+}
+
+export interface FullRewriteOutput {
+  preservedStudentPosition: boolean
+  stanceChanged: boolean
+  originalPosition: string
+  finalPosition: string
+  stanceChangeReason: string | null
+  addedClaims: Array<{
+    claim: string
+    reason: string
+  }>
+  strategySummary: string
+  fullRewrite: string
 }

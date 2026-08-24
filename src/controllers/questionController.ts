@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { uploadToCOS } from '../lib/cos'
+import { ensureCanonicalQuestion } from '../services/canonicalQuestionService'
 import { expandQuestionSubtypeFilter, normalizeQuestionSubtype } from '../utils/questionTaxonomy'
 
 function parseOptionalInt(value: unknown): number | null | undefined {
@@ -134,6 +135,18 @@ export const getQuestionById = async (req: Request, res: Response) => {
   res.json({ ...question, subtype: normalizeQuestionSubtype(question.task, question.subtype) })
 }
 
+// Safe detail for learner-facing pages: preserves the original endpoint but
+// does not include related model essay bodies.
+export const getQuestionSummaryById = async (req: Request, res: Response) => {
+  const id = Number(req.params.id)
+  const question = await prisma.question.findUnique({ where: { id } })
+  if (!question) {
+    res.status(404).json({ error: '题目不存在' })
+    return
+  }
+  res.json({ ...question, subtype: normalizeQuestionSubtype(question.task, question.subtype) })
+}
+
 export const createQuestion = async (req: Request, res: Response) => {
   const {
     task, subtype, topic, topicCategory, topicSubcategory, content, outline, source,
@@ -149,10 +162,18 @@ export const createQuestion = async (req: Request, res: Response) => {
     imageUrl = await uploadToCOS(req.file.buffer, req.file.originalname, 'questions')
   }
 
+  const normalizedSubtype = normalizeQuestionSubtype(task, subtype)
+  const canonicalQuestionId = await ensureCanonicalQuestion({
+    content,
+    task,
+    subtype: normalizedSubtype,
+    topic: topic || topicCategory,
+  })
   const question = await prisma.question.create({
     data: {
+      canonicalQuestionId,
       task,
-      subtype: normalizeQuestionSubtype(task, subtype),
+      subtype: normalizedSubtype,
       topic: topic || topicCategory,
       topicCategory: topicCategory || topic,
       topicSubcategory,
@@ -203,6 +224,24 @@ export const updateQuestion = async (req: Request, res: Response) => {
   if (year !== undefined) data.year = parseOptionalInt(year)
   if (month !== undefined) data.month = parseOptionalInt(month)
   if (imageUrl) data.imageUrl = imageUrl
+
+  if ([task, subtype, topic, topicCategory, content].some(value => value !== undefined)) {
+    const existing = await prisma.question.findUnique({ where: { id: parseInt(id as string) } })
+    if (!existing) {
+      res.status(404).json({ error: '题目不存在' })
+      return
+    }
+    const effectiveTask = task ?? existing.task
+    const effectiveSubtype = normalizeQuestionSubtype(effectiveTask, subtype ?? existing.subtype)
+    const effectiveTopic = topic ?? topicCategory ?? existing.topic
+    data.subtype = effectiveSubtype
+    data.canonicalQuestionId = await ensureCanonicalQuestion({
+      content: content ?? existing.content,
+      task: effectiveTask,
+      subtype: effectiveSubtype,
+      topic: effectiveTopic,
+    })
+  }
 
   const question = await prisma.question.update({
     where: { id: parseInt(id as string) },

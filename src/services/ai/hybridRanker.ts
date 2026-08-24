@@ -1,12 +1,14 @@
 import { KnowledgeEmbeddingStatus } from '@prisma/client'
 import prisma from '../../prisma'
 import { embedTexts, getEmbeddingConfig, hasEmbeddingApiKey } from './embeddingProvider'
+import { getRerankConfig, hasRerankApiKey, rerankTexts } from './rerankProvider'
 import { RagChunk } from './types'
 
 export interface HybridRankResult {
   chunks: RagChunk[]
-  strategy: 'keyword_metadata' | 'hybrid_keyword_vector'
+  strategy: 'keyword_metadata' | 'hybrid_keyword_vector' | 'hybrid_keyword_vector_rerank'
   embeddedCandidates: number
+  rerankedCandidates?: number
   vectors?: Map<number, number[]>
   queryVector?: number[]
 }
@@ -37,7 +39,7 @@ export async function hybridRankChunks(query: string, ranked: RagChunk[]): Promi
     return { chunks: ranked, strategy: 'keyword_metadata', embeddedCandidates: vectors.size }
   }
 
-  const queryVector = (await embedTexts([query])).vectors[0]
+  const queryVector = (await embedTexts([query], { inputType: 'query' })).vectors[0]
 
   // Build semantic rank: sort candidates by cosine similarity (descending)
   const semanticSorted = ranked
@@ -60,6 +62,45 @@ export async function hybridRankChunks(query: string, ranked: RagChunk[]): Promi
     const semanticScore = vec ? cosineSimilarity(queryVector, vec) : null
     return { ...chunk, score: rrfScore, semanticScore }
   }).sort((a, b) => b.score - a.score)
+
+  if (hasRerankApiKey()) {
+    const rerankConfig = getRerankConfig()
+    const candidates = chunks.slice(0, rerankConfig.candidateLimit)
+    try {
+      const reranked = await rerankTexts(query, candidates.map(chunk => chunk.chunkText))
+      const rerankRankMap = new Map<number, number>()
+      const rerankScoreMap = new Map<number, number>()
+      reranked.forEach((item, index) => {
+        const chunk = candidates[item.index]
+        if (!chunk) return
+        rerankRankMap.set(chunk.id, index + 1)
+        rerankScoreMap.set(chunk.id, item.relevanceScore)
+      })
+      const rerankedChunks = chunks.map((chunk, index) => {
+        const hybridRank = index + 1
+        const rerankRank = rerankRankMap.get(chunk.id)
+        const fusedScore = 1 / (RRF_K + hybridRank)
+          + (rerankRank ? 1 / (RRF_K + rerankRank) : 0)
+        return {
+          ...chunk,
+          score: fusedScore,
+          rerankScore: rerankScoreMap.get(chunk.id) ?? null,
+        }
+      }).sort((left, right) => right.score - left.score)
+
+      return {
+        chunks: rerankedChunks,
+        strategy: 'hybrid_keyword_vector_rerank',
+        embeddedCandidates: vectors.size,
+        rerankedCandidates: reranked.length,
+        vectors,
+        queryVector,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown rerank error'
+      console.warn(`[rag] reranker unavailable; continuing with hybrid retrieval: ${message}`)
+    }
+  }
 
   return {
     chunks,

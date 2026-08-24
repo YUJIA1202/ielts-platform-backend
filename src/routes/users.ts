@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import multer from 'multer'
-import path from 'path'
 import { requireAuth, requireAdmin } from '../middleware/auth'
+import { validateImageFile } from '../middleware/uploadValidation'
 import {
   getAllUsers,
   getUserById,
@@ -18,18 +18,8 @@ import {
 
 const router = Router()
 
-const avatarStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, path.join(process.cwd(), 'uploads/avatars'))
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname)
-    cb(null, `avatar_${Date.now()}${ext}`)
-  },
-})
-
 const uploadMiddleware = multer({
-  storage: avatarStorage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith('image/')) {
@@ -42,7 +32,7 @@ const uploadMiddleware = multer({
 // 固定路径在前
 router.get('/all',     requireAuth, requireAdmin, getAllUsers)
 router.put('/profile', requireAuth, updateProfile)
-router.post('/avatar', requireAuth, uploadMiddleware.single('avatar'), uploadAvatar)
+router.post('/avatar', requireAuth, uploadMiddleware.single('avatar'), validateImageFile, uploadAvatar)
 
 // 动态子路径在 /:id 之前
 router.get('/:id/login-sessions',  requireAuth, requireAdmin, getUserLoginSessions)

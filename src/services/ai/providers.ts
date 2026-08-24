@@ -16,6 +16,8 @@ export interface StructuredProviderInput<T> {
   fallbackOutput: T
   temperature?: number
   maxOutputTokens?: number
+  thinkingMode?: 'enabled' | 'disabled'
+  reasoningEffort?: 'low' | 'medium' | 'high'
 }
 
 export interface AiProviderResult<T> {
@@ -39,7 +41,9 @@ export async function generateStructuredWithProvider<T>(input: StructuredProvide
 }
 
 export function resolveModelProvider(): StructuredModelProvider {
-  const apiKey = process.env.AI_PROVIDER_API_KEY || process.env.OPENAI_API_KEY
+  const providerName = resolveGenerationProvider()
+  const apiKey = process.env.AI_PROVIDER_API_KEY
+    || (providerName === 'DEEPSEEK' ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY)
   if (!apiKey) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('AI provider API key is required in production')
@@ -47,13 +51,15 @@ export function resolveModelProvider(): StructuredModelProvider {
     return new LocalFallbackProvider()
   }
   const model = process.env.AI_PROVIDER_MODEL?.trim()
+    || (providerName === 'DEEPSEEK' ? 'deepseek-v4-pro' : '')
   if (!model) {
     throw new Error('AI_PROVIDER_MODEL must be configured explicitly when an AI provider API key is present')
   }
   return new OpenAiCompatibleProvider({
-    providerName: process.env.AI_PROVIDER || 'OPENAI_COMPATIBLE',
+    providerName,
     apiKey,
-    baseUrl: process.env.AI_PROVIDER_BASE_URL || 'https://api.openai.com/v1',
+    baseUrl: process.env.AI_PROVIDER_BASE_URL
+      || (providerName === 'DEEPSEEK' ? 'https://api.deepseek.com' : 'https://api.openai.com/v1'),
     model,
   })
 }
@@ -95,29 +101,49 @@ class OpenAiCompatibleProvider implements StructuredModelProvider {
       ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
       ...(isDeepSeek
         ? {
-            thinking: { type: process.env.AI_PROVIDER_THINKING || 'enabled' },
-            reasoning_effort: process.env.AI_PROVIDER_REASONING_EFFORT || 'high',
+            thinking: { type: input.thinkingMode || process.env.AI_PROVIDER_THINKING || 'enabled' },
+            reasoning_effort: input.reasoningEffort || process.env.AI_PROVIDER_REASONING_EFFORT || 'high',
           }
         : { temperature: input.temperature ?? 0.2 }),
     }
-    const response = await axios.post(
-      `${this.baseUrl}/chat/completions`,
-      requestBody,
-      {
-        headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
-        timeout: 120_000,
-      },
-    )
-    const content = response.data?.choices?.[0]?.message?.content
-    if (!content || typeof content !== 'string') throw new Error('AI provider returned empty content')
-    return {
-      provider: this.providerName,
-      model: this.model,
-      output: JSON.parse(content) as T,
-      rawOutput: response.data,
-      inputTokens: response.data?.usage?.prompt_tokens,
-      outputTokens: response.data?.usage?.completion_tokens,
-      latencyMs: Date.now() - started,
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/chat/completions`,
+        requestBody,
+        {
+          headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
+          timeout: 300_000,
+        },
+      )
+      const choice = response.data?.choices?.[0]
+      const content = choice?.message?.content
+      if (!content || typeof content !== 'string') throw new Error('AI provider returned empty content')
+      return {
+        provider: this.providerName,
+        model: this.model,
+        output: parseStructuredJson<T>(content),
+        // DeepSeek can return reasoning_content. Thinking is used by the model, but raw CoT is
+        // deliberately not persisted; the product stores conclusions, evidence and validation.
+        rawOutput: {
+          id: response.data?.id,
+          model: response.data?.model,
+          finishReason: choice?.finish_reason,
+          content,
+          usage: response.data?.usage,
+        },
+        inputTokens: response.data?.usage?.prompt_tokens,
+        outputTokens: response.data?.usage?.completion_tokens,
+        latencyMs: Date.now() - started,
+      }
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status
+        const providerMessage = readProviderError(error.response?.data)
+        throw new Error(
+          `${this.providerName} generation request failed${status ? ` (${status})` : ''}${providerMessage ? `: ${providerMessage}` : ''}`,
+        )
+      }
+      throw error
     }
   }
 }
@@ -181,4 +207,44 @@ export function buildFallbackReview(preprocessed: PreprocessedEssay): ReviewOutp
       reason: '本地占位改写：真实模型接入后会生成更自然、符合IELTS写作要求的表达。',
     }] : [],
   }
+}
+
+function resolveGenerationProvider() {
+  const explicit = process.env.AI_PROVIDER?.trim()
+  if (explicit) return explicit.toUpperCase()
+  if (process.env.DEEPSEEK_API_KEY) return 'DEEPSEEK'
+  return 'OPENAI_COMPATIBLE'
+}
+
+function parseStructuredJson<T>(content: string): T {
+  const normalized = content.trim().replace(/^\uFEFF/, '')
+  try {
+    return JSON.parse(normalized) as T
+  } catch {
+    const withoutFence = normalized
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim()
+    try {
+      return JSON.parse(withoutFence) as T
+    } catch {
+      const firstObject = withoutFence.indexOf('{')
+      const lastObject = withoutFence.lastIndexOf('}')
+      if (firstObject >= 0 && lastObject > firstObject) {
+        return JSON.parse(withoutFence.slice(firstObject, lastObject + 1)) as T
+      }
+      throw new Error('AI provider returned invalid JSON')
+    }
+  }
+}
+
+function readProviderError(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (typeof record.message === 'string') return record.message
+  if (record.error && typeof record.error === 'object') {
+    const message = (record.error as Record<string, unknown>).message
+    if (typeof message === 'string') return message
+  }
+  return null
 }

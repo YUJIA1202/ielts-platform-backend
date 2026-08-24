@@ -125,9 +125,25 @@ assert.equal(
 )
 assert.equal(repeatedReview.rewrites[1].startOffset, repeatedReview.rewrites[1].endOffset)
 
+const coverageRewrites = essay.sentences.flatMap(sentence =>
+  ['LANGUAGE', 'COHERENCE', 'TASK'].map(rewriteLayer => ({
+    paragraphIndex: sentence.paragraphIndex,
+    sentenceIndex: sentence.index,
+    level: 'SENTENCE',
+    rewriteLayer,
+    operation: 'REPLACE',
+    anchorText: sentence.text,
+    occurrence: 1,
+    originalText: sentence.text,
+    rewrittenText: sentence.text,
+    reason: 'Pipeline coverage fixture.',
+  })),
+)
+
 assert.throws(() => validateRepairOutput({
   ...output,
   sentenceAnnotations: output.sentenceAnnotations.slice(0, 1),
+  rewrites: coverageRewrites,
 }, essay, output), /retained only 1\/2 verified annotations/)
 
 console.log(JSON.stringify({

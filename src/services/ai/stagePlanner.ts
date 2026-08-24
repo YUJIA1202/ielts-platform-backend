@@ -17,8 +17,9 @@ export function buildReviewStagePlan(
   essay: PreprocessedEssay,
   options: { paragraphBatchSize?: number; sentenceBatchSize?: number } = {},
 ): ReviewStagePlan {
-  const paragraphBatchSize = clamp(options.paragraphBatchSize || 2, 1, 4)
-  const sentenceBatchSize = clamp(options.sentenceBatchSize || 6, 3, 10)
+  // One paragraph per call leaves enough output budget for Excel-depth TR/CC/LR/GRA analysis.
+  const paragraphBatchSize = clamp(options.paragraphBatchSize || 1, 1, 4)
+  const sentenceBatchSize = clamp(options.sentenceBatchSize || 3, 3, 10)
   return {
     global: { stage: AiReviewStage.GLOBAL_ANALYSIS, targetIndexes: [] },
     paragraphBatches: makeBatches(

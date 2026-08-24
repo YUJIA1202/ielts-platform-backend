@@ -10,6 +10,7 @@ import {
   deleteVideo,
 } from '../controllers/videoController'
 import { requireAuth, requireAdmin } from '../middleware/auth'
+import { validateVideoFiles } from '../middleware/uploadValidation'
 
 const router = Router()
 
@@ -35,6 +36,7 @@ router.post('/', requireAuth, requireAdmin,
     { name: 'video', maxCount: 1 },
     { name: 'cover', maxCount: 1 },
   ]),
+  validateVideoFiles,
   createVideo
 )
 router.put('/:id', requireAuth, requireAdmin, updateVideo)

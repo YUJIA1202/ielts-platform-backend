@@ -13,6 +13,8 @@ import {
   RagRetrievalStage,
 } from './types'
 import { cosineSimilarity, hybridRankChunks } from './hybridRanker'
+import { normalizeQuestionSubtype } from '../../utils/questionTaxonomy'
+import { canonicalQuestionHash } from '../../utils/canonicalQuestion'
 
 interface RetrievalInput {
   jobId: number
@@ -23,6 +25,7 @@ interface RetrievalInput {
   targetIndex?: number | null
   topK?: number
   previouslySelectedChunkIds?: ReadonlySet<number>
+  canonicalQuestionId?: number | null
 }
 
 interface RetrievalResult {
@@ -39,6 +42,7 @@ export async function retrieveHierarchicalRagPlan(input: {
   const groups: RagEvidenceGroup[] = []
   const results: RetrievalResult[] = []
   const previouslySelectedChunkIds = new Set<number>()
+  const canonicalQuestionId = await resolveCanonicalQuestionId(input.questionText)
 
   const globalResult = await retrieveRagChunks({
     ...input,
@@ -47,6 +51,7 @@ export async function retrieveHierarchicalRagPlan(input: {
     targetIndex: null,
     topK: 12,
     previouslySelectedChunkIds,
+    canonicalQuestionId,
   })
   results.push(globalResult)
   globalResult.group.chunks.forEach(chunk => previouslySelectedChunkIds.add(chunk.id))
@@ -59,6 +64,7 @@ export async function retrieveHierarchicalRagPlan(input: {
       targetIndex: paragraph.index,
       topK: 8,
       previouslySelectedChunkIds,
+      canonicalQuestionId,
     })
     results.push(result)
     result.group.chunks.forEach(chunk => previouslySelectedChunkIds.add(chunk.id))
@@ -72,6 +78,7 @@ export async function retrieveHierarchicalRagPlan(input: {
       targetIndex: sentence.index,
       topK: 6,
       previouslySelectedChunkIds,
+      canonicalQuestionId,
     })
     results.push(result)
     result.group.chunks.forEach(chunk => previouslySelectedChunkIds.add(chunk.id))
@@ -139,6 +146,11 @@ export async function retrieveRagChunks(input: RetrievalInput): Promise<Retrieva
     baseWhere,
     stageQuotas(stage, topK),
   )
+  candidates = await addExactCanonicalCandidates(
+    candidates,
+    baseWhere,
+    input.canonicalQuestionId,
+  )
   const keywordRanked = candidates
     .map(chunk => ({
       id: chunk.id,
@@ -160,6 +172,8 @@ export async function retrieveRagChunks(input: RetrievalInput): Promise<Retrieva
         chunk.document.source.sourceType,
         chunk.chunkType,
         stage,
+        input.canonicalQuestionId,
+        chunk.document.canonicalQuestionId,
       ),
     }))
     .filter(chunk => chunk.score > 0)
@@ -177,7 +191,7 @@ export async function retrieveRagChunks(input: RetrievalInput): Promise<Retrieva
         text: query,
       }),
       topK,
-      strategy: `hierarchical_${hybrid.strategy}_v1:${stage.toLowerCase()}`,
+      strategy: `hierarchical_${hybrid.strategy}_v2:${stage.toLowerCase()}`,
     },
   })
 
@@ -205,14 +219,27 @@ export async function retrieveRagChunks(input: RetrievalInput): Promise<Retrieva
   }
 }
 
+async function resolveCanonicalQuestionId(questionText: string | null) {
+  const promptHash = canonicalQuestionHash(questionText)
+  if (!promptHash) return null
+  const canonical = await prisma.canonicalQuestion.findUnique({
+    where: { promptHash },
+    select: { id: true },
+  })
+  return canonical?.id ?? null
+}
+
 function buildMetadataFilter(preprocessed: PreprocessedEssay): Prisma.KnowledgeChunkWhereInput {
-  const filters: Prisma.KnowledgeChunkWhereInput[] = []
+  const filters: Prisma.KnowledgeChunkWhereInput[] = [
+    { document: { allowedForRag: true } },
+  ]
   if (preprocessed.detectedTask) {
     filters.push({ OR: [{ task: preprocessed.detectedTask }, { task: null }] })
   }
-  if (preprocessed.detectedSubtype) {
-    filters.push({ OR: [{ subtype: preprocessed.detectedSubtype }, { subtype: null }] })
-  }
+  // Subtype is deliberately not a hard database filter. Historical Excel data
+  // uses codes such as DISCUSSION while the product API exposes Chinese labels
+  // such as 双边/讨论双方. More importantly, adjacent Task 2 types can still be
+  // useful evidence. Exact-family matches receive a ranking boost below.
   return filters.length ? { AND: filters } : {}
 }
 
@@ -237,6 +264,29 @@ async function addMissingChannelCandidates(
   const additions = await findChannelCandidates(baseWhere, missing)
   const byId = new Map(candidates.map(candidate => [candidate.id, candidate]))
   for (const candidate of additions) byId.set(candidate.id, candidate)
+  return Array.from(byId.values())
+}
+
+async function addExactCanonicalCandidates(
+  candidates: Awaited<ReturnType<typeof findChannelCandidates>>,
+  baseWhere: Prisma.KnowledgeChunkWhereInput,
+  canonicalQuestionId?: number | null,
+) {
+  if (!canonicalQuestionId) return candidates
+  const exact = await prisma.knowledgeChunk.findMany({
+    where: {
+      AND: [
+        baseWhere,
+        { document: { canonicalQuestionId } },
+      ],
+    },
+    include: { document: { include: { source: true } } },
+    take: 240,
+    orderBy: { createdAt: 'desc' },
+  })
+  if (!exact.length) return candidates
+  const byId = new Map(candidates.map(candidate => [candidate.id, candidate]))
+  for (const candidate of exact) byId.set(candidate.id, candidate)
   return Array.from(byId.values())
 }
 
@@ -308,6 +358,8 @@ function scoreChunk(
   sourceType: KnowledgeSourceType,
   chunkType: KnowledgeChunkType,
   stage: RagRetrievalStage,
+  canonicalQuestionId: number | null | undefined,
+  chunkCanonicalQuestionId: number | null,
 ): number {
   const chunkTerms = tokenize(chunkText)
   let score = 0
@@ -315,7 +367,8 @@ function scoreChunk(
     if (chunkTerms.has(term)) score += 1
   }
   if (detectedTask && chunkTask === detectedTask) score += 8
-  if (detectedSubtype && chunkSubtype?.toLowerCase() === detectedSubtype.toLowerCase()) score += 6
+  if (sameTask2SubtypeFamily(detectedSubtype, chunkSubtype)) score += 6
+  if (canonicalQuestionId && canonicalQuestionId === chunkCanonicalQuestionId) score += 18
 
   const channel = classifyChannel(sourceType, chunkType)
   if (channel === 'ANNOTATION') score += stage === 'SENTENCE' ? 10 : 6
@@ -323,6 +376,12 @@ function scoreChunk(
   if (channel === 'MODEL_REFERENCE') score += stage === 'GLOBAL' ? 5 : 3
   if (channel === 'RUBRIC') score += stage === 'GLOBAL' ? 8 : 3
   return score
+}
+
+function sameTask2SubtypeFamily(left: string | null, right: string | null) {
+  if (!left || !right) return false
+  return normalizeQuestionSubtype('TASK2', left)?.toLowerCase()
+    === normalizeQuestionSubtype('TASK2', right)?.toLowerCase()
 }
 
 // λ for MMR: 0.5 balances relevance and diversity (Carbonell & Goldstein, 1998)
@@ -384,7 +443,11 @@ function mmrSelect(
     for (let i = 0; i < remaining.length; i++) {
       const chunk = remaining[i]
       const vec = vectors.get(chunk.id)
-      const relevance = vec ? normCos(cosineSimilarity(queryVector, vec)) : chunk.score
+      const relevance = chunk.rerankScore != null
+        ? normalizeRerankScore(chunk.rerankScore)
+        : vec
+          ? normCos(cosineSimilarity(queryVector, vec))
+          : chunk.score
 
       let maxRedundancy = 0
       if (localSelected.length > 0 && vec) {
@@ -410,6 +473,12 @@ function mmrSelect(
 
 function normCos(value: number): number {
   return Math.max(0, Math.min(1, (value + 1) / 2))
+}
+
+function normalizeRerankScore(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  if (value >= 0 && value <= 1) return value
+  return 1 / (1 + Math.exp(-value))
 }
 
 function selectPromptEvidence(groups: RagEvidenceGroup[], limit: number): RagChunk[] {

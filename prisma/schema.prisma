@@ -55,6 +55,9 @@ model User {
   aiReviews        AiReview[]
   aiModelCalls     AiModelCall[]
   humanAudits      HumanReviewAudit[]
+  practiceProfile  PracticeProfile?
+  practiceSessions PracticeSession[]
+  practiceAttempts PracticeAttempt[]
 }
 
 model LoginSession {
@@ -68,37 +71,62 @@ model LoginSession {
 }
 
 model Question {
-  id                 Int       @id @default(autoincrement())
-  task               TaskType
-  subtype            String?
-  topic              String?
-  topicCategory      String?
-  topicSubcategory   String?   @db.Text
-  content            String    @db.Text
-  outline            String?   @db.Text
-  imageUrl           String?
-  source             String?
-  sourceKey          String?   @unique
-  sourceRow          Int?
-  examDate           DateTime?
-  testMode           String?
-  region             String?
-  similarGroup       String?
-  year               Int?
-  month              Int?
-  createdAt          DateTime  @default(now())
+  id                  Int       @id @default(autoincrement())
+  canonicalQuestionId Int?
+  task                TaskType
+  subtype             String?
+  topic               String?
+  topicCategory       String?
+  topicSubcategory    String?   @db.Text
+  content             String    @db.Text
+  outline             String?   @db.Text
+  imageUrl            String?
+  source              String?
+  sourceKey           String?   @unique
+  sourceRow           Int?
+  examDate            DateTime?
+  testMode            String?
+  region              String?
+  similarGroup        String?
+  year                Int?
+  month               Int?
+  createdAt           DateTime  @default(now())
 
   essays                ModelEssay[]
   submissions           Submission[]
   viewLogs              QuestionViewLog[]
-  primaryExamSessions   ExamSession[]     @relation("PrimaryExamQuestion")
-  secondaryExamSessions ExamSession[]     @relation("SecondaryExamQuestion")
+  primaryExamSessions   ExamSession[]       @relation("PrimaryExamQuestion")
+  secondaryExamSessions ExamSession[]       @relation("SecondaryExamQuestion")
   aiReviewRequests      AiReviewRequest[]
+  knowledgeDocuments    KnowledgeDocument[]
+  canonicalQuestion     CanonicalQuestion?  @relation(fields: [canonicalQuestionId], references: [id], onDelete: SetNull)
 
   @@index([task, subtype])
   @@index([task, topicCategory])
   @@index([year, month])
   @@index([examDate])
+  @@index([canonicalQuestionId])
+}
+
+// Stable identity for one IELTS prompt across the question bank, model essays,
+// teacher reviews, and repeated student submissions. Existing Question rows and
+// public APIs remain unchanged; this table only supplies a shared RAG key.
+model CanonicalQuestion {
+  id               Int       @id @default(autoincrement())
+  promptHash       String    @unique @db.VarChar(64)
+  normalizedPrompt String    @db.LongText
+  displayPrompt    String    @db.LongText
+  task             TaskType?
+  subtype          String?
+  topic            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  questions          Question[]
+  knowledgeDocuments KnowledgeDocument[]
+
+  @@index([task, subtype])
+  @@index([topic])
 }
 
 model ExamSession {
@@ -283,15 +311,16 @@ model AiReview {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  job         AiReviewJob            @relation(fields: [jobId], references: [id])
-  request     AiReviewRequest        @relation(fields: [requestId], references: [id])
-  user        User                   @relation(fields: [userId], references: [id])
-  submission  Submission?            @relation(fields: [submissionId], references: [id])
-  scores      AiReviewScore[]
-  findings    AiGlobalFinding[]
-  annotations AiSentenceAnnotation[]
-  rewrites    AiRewrite[]
-  audits      HumanReviewAudit[]
+  job              AiReviewJob            @relation(fields: [jobId], references: [id])
+  request          AiReviewRequest        @relation(fields: [requestId], references: [id])
+  user             User                   @relation(fields: [userId], references: [id])
+  submission       Submission?            @relation(fields: [submissionId], references: [id])
+  scores           AiReviewScore[]
+  findings         AiGlobalFinding[]
+  annotations      AiSentenceAnnotation[]
+  rewrites         AiRewrite[]
+  audits           HumanReviewAudit[]
+  practiceSessions PracticeSession[]
 
   @@index([userId, createdAt])
   @@index([requestId])
@@ -365,6 +394,7 @@ model AiRewrite {
   sentenceIndex  Int?
   paragraphIndex Int?
   level          AiAnnotationLevel   @default(SENTENCE)
+  rewriteLayer   AiRewriteLayer?
   operation      AiRevisionOperation @default(REPLACE)
   anchorText     String?             @db.Text
   startOffset    Int?
@@ -378,6 +408,119 @@ model AiRewrite {
   review AiReview @relation(fields: [reviewId], references: [id])
 
   @@index([reviewId, sentenceIndex])
+}
+
+// Practice is downstream of the review and knowledge pipelines. Items are
+// generated offline from traceable knowledge sources; answers never need to be
+// sent to the browser before an attempt is judged.
+model PracticeItem {
+  id                String             @id @default(cuid())
+  tab               PracticeTab
+  itemType          PracticeItemType
+  topic             String?
+  questionSubtype   String?
+  issueTypes        Json
+  difficulty        PracticeDifficulty @default(CORE)
+  stem              String             @db.Text
+  materials         Json
+  options           Json?
+  answerKey         Json
+  acceptableAnswers Json?
+  judgePoints       Json
+  explanation       String             @db.LongText
+  sourceRefs        Json
+  status            PracticeItemStatus @default(DRAFT)
+  stats             Json
+  version           Int                @default(1)
+  changelog         Json?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  attempts PracticeAttempt[]
+
+  @@index([tab, status])
+  @@index([topic, questionSubtype])
+  @@index([itemType, status])
+}
+
+model PracticeProfile {
+  studentId     Int      @id
+  issueCounters Json
+  sourceEssays  Json
+  masteryFlags  Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+}
+
+// Operational session state is kept separately from the four core domain
+// tables so Tab 5/6 can later be opened from either a review or Navigator.
+model PracticeSession {
+  id              String                @id @default(cuid())
+  studentId       Int
+  aiReviewId      Int?
+  mode            PracticeSessionMode
+  tab             PracticeTab
+  topic           String?
+  questionSubtype String?
+  itemIds         Json
+  profileSnapshot Json?
+  status          PracticeSessionStatus @default(ACTIVE)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  completedAt     DateTime?
+
+  user     User              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  aiReview AiReview?         @relation(fields: [aiReviewId], references: [id], onDelete: SetNull)
+  attempts PracticeAttempt[]
+
+  @@index([studentId, createdAt])
+  @@index([aiReviewId])
+  @@index([tab, status])
+}
+
+model PracticeAttempt {
+  id               String               @id @default(cuid())
+  studentId        Int
+  sessionId        String
+  itemId           String
+  answerPayload    Json
+  verdict          PracticeVerdict
+  judgedBy         PracticeJudgedBy
+  judgeRationale   String?              @db.Text
+  fixed            Json?
+  remaining        Json?
+  appealStatus     PracticeAppealStatus @default(NONE)
+  appealReason     String?              @db.Text
+  appealResolution String?              @db.Text
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  user    User            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  session PracticeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  item    PracticeItem    @relation(fields: [itemId], references: [id])
+
+  @@index([studentId, createdAt])
+  @@index([sessionId, itemId])
+  @@index([itemId, verdict])
+  @@index([appealStatus])
+}
+
+model TopicErrorStat {
+  id              Int      @id @default(autoincrement())
+  topic           String
+  questionSubtype String
+  issueType       String
+  frequency       Int
+  share           Float
+  sourceVersion   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([topic, questionSubtype, issueType])
+  @@index([topic, questionSubtype])
+  @@index([issueType])
 }
 
 model AiModelCall {
@@ -477,23 +620,25 @@ model KnowledgeSource {
 }
 
 model KnowledgeDocument {
-  id        Int       @id @default(autoincrement())
-  sourceId  Int
-  title     String
-  rawText   String    @db.LongText
-  fileUrl   String?
-  task      TaskType?
-  subtype   String?
-  topic     String?
-  band      Float?
+  id                  Int       @id @default(autoincrement())
+  sourceId            Int
+  questionId          Int?
+  canonicalQuestionId Int?
+  title               String
+  rawText             String    @db.LongText
+  fileUrl             String?
+  task                TaskType?
+  subtype             String?
+  topic               String?
+  band                Float?
 
   // ── V6 Phase3: 数据质量标记 ──────────────────────────────────
   // 内容角色（是什么）
-  contentRole        String?   // REVIEW_EXAMPLE | MODEL_ESSAY | MODEL_PARAGRAPH
-                               // TEACHING_NOTE | MIXED | NEEDS_REVIEW
+  contentRole        String? // REVIEW_EXAMPLE | MODEL_ESSAY | MODEL_PARAGRAPH
+  // TEACHING_NOTE | MIXED | NEEDS_REVIEW
   // 完整性状态（有多完整）
-  completenessStatus String?   // COMPLETE | PARTIAL | MISSING_PROMPT
-                               // MULTI_ESSAY_DOCUMENT | MIXED_TASK_DOCUMENT | NEEDS_REVIEW
+  completenessStatus String? // COMPLETE | PARTIAL | MISSING_PROMPT
+  // MULTI_ESSAY_DOCUMENT | MIXED_TASK_DOCUMENT | NEEDS_REVIEW
   // 推断题型（不覆盖 task，task 冻结直到人工确认）
   probableTask       TaskType?
   // RAG 检索开关
@@ -504,14 +649,22 @@ model KnowledgeDocument {
   qualityNotes       String?   @db.Text
   // ─────────────────────────────────────────────────────────────
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  source      KnowledgeSource       @relation(fields: [sourceId], references: [id])
-  chunks      KnowledgeChunk[]
-  annotations KnowledgeAnnotation[]
+  source            KnowledgeSource           @relation(fields: [sourceId], references: [id])
+  question          Question?                 @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  canonicalQuestion CanonicalQuestion?        @relation(fields: [canonicalQuestionId], references: [id], onDelete: SetNull)
+  chunks            KnowledgeChunk[]
+  annotations       KnowledgeAnnotation[]
+  textUnits         KnowledgeTextUnit[]
+  assessments       KnowledgeAssessment[]
+  rewriteExamples   KnowledgeRewriteExample[]
+  sourceRecords     KnowledgeSourceRecord[]
 
   @@index([sourceId])
+  @@index([questionId])
+  @@index([canonicalQuestionId])
   @@index([task, subtype])
   @@index([contentRole])
   @@index([allowedForRag])
@@ -530,16 +683,188 @@ model KnowledgeChunk {
   tokenCount Int?
   createdAt  DateTime           @default(now())
 
-  document      KnowledgeDocument     @relation(fields: [documentId], references: [id])
+  document      KnowledgeDocument       @relation(fields: [documentId], references: [id])
   embeddings    KnowledgeEmbedding[]
   retrievalHits RetrievalEventChunk[]
   annotations   KnowledgeAnnotation[]
   goldStandards RetrievalGoldStandard[]
   hardNegatives RetrievalHardNegative[]
+  assessments   KnowledgeAssessment[]
 
   @@index([documentId])
   @@index([task, subtype])
   @@index([chunkType])
+}
+
+// Lossless, stable paragraph/sentence units extracted from source documents.
+// KnowledgeChunk remains a rebuildable retrieval projection; these units are
+// the canonical anchors for assessments, evidence, and rewrites.
+model KnowledgeTextUnit {
+  id             Int      @id @default(autoincrement())
+  documentId     Int
+  parentId       Int?
+  unitType       String
+  stableKey      String
+  versionId      String?
+  ordinal        Int
+  paragraphIndex Int?
+  sentenceIndex  Int?
+  text           String   @db.LongText
+  startOffset    Int?
+  endOffset      Int?
+  sourceSheet    String?
+  sourceRow      Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  document           KnowledgeDocument             @relation(fields: [documentId], references: [id])
+  parent             KnowledgeTextUnit?            @relation("KnowledgeTextUnitTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children           KnowledgeTextUnit[]           @relation("KnowledgeTextUnitTree")
+  primaryAssessments KnowledgeAssessment[]         @relation("KnowledgeAssessmentPrimaryUnit")
+  primaryFindings    KnowledgeAssessmentFinding[]  @relation("KnowledgeFindingPrimaryUnit")
+  evidenceRefs       KnowledgeAssessmentEvidence[]
+  rewriteExamples    KnowledgeRewriteExample[]
+
+  @@unique([documentId, stableKey])
+  @@index([documentId, unitType])
+  @@index([documentId, paragraphIndex, sentenceIndex])
+  @@index([parentId])
+}
+
+// Complete source assessment container. rawFeedback always preserves the
+// original long Excel evaluation even when it is decomposed into findings.
+model KnowledgeAssessment {
+  id            Int      @id @default(autoincrement())
+  documentId    Int
+  chunkId       Int?
+  primaryUnitId Int?
+  sourceKey     String
+  kind          String
+  scope         String
+  dimension     String?
+  score         Float?
+  status        String?
+  tags          Json?
+  rawFeedback   String   @db.LongText
+  sourceSheet   String?
+  sourceRow     Int?
+  sourceColumn  String?
+  rawJson       Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  document    KnowledgeDocument            @relation(fields: [documentId], references: [id])
+  chunk       KnowledgeChunk?              @relation(fields: [chunkId], references: [id], onDelete: SetNull)
+  primaryUnit KnowledgeTextUnit?           @relation("KnowledgeAssessmentPrimaryUnit", fields: [primaryUnitId], references: [id], onDelete: SetNull)
+  findings    KnowledgeAssessmentFinding[]
+
+  @@unique([documentId, sourceKey])
+  @@index([documentId, scope, dimension])
+  @@index([chunkId])
+  @@index([primaryUnitId])
+  @@index([kind])
+}
+
+// Atomic opinion inside a complete assessment container. Offsets point into
+// KnowledgeAssessment.rawFeedback so the UI can keep the long-form review and
+// still connect a selected clause to precise source evidence.
+model KnowledgeAssessmentFinding {
+  id                  Int      @id @default(autoincrement())
+  assessmentId        Int
+  primaryUnitId       Int?
+  ordinal             Int
+  scope               String
+  kind                String
+  content             String   @db.LongText
+  feedbackStartOffset Int?
+  feedbackEndOffset   Int?
+  confidence          Float?
+  semanticStatus      String   @default("DETERMINISTIC")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  assessment  KnowledgeAssessment           @relation(fields: [assessmentId], references: [id])
+  primaryUnit KnowledgeTextUnit?            @relation("KnowledgeFindingPrimaryUnit", fields: [primaryUnitId], references: [id], onDelete: SetNull)
+  evidence    KnowledgeAssessmentEvidence[]
+
+  @@unique([assessmentId, ordinal])
+  @@index([assessmentId, scope])
+  @@index([primaryUnitId])
+  @@index([kind])
+}
+
+// A finding may point to many sentences, spans, paragraphs, or cross-scope
+// context records. refKey preserves the original SID even when unresolved.
+model KnowledgeAssessmentEvidence {
+  id             Int                        @id @default(autoincrement())
+  findingId      Int
+  unitId         Int?
+  refKey         String?
+  role           String
+  quotedText     String?                    @db.LongText
+  startOffset    Int?
+  endOffset      Int?
+  locationStatus AiAnnotationLocationStatus @default(PENDING)
+  confidence     Float?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  finding KnowledgeAssessmentFinding @relation(fields: [findingId], references: [id])
+  unit    KnowledgeTextUnit?         @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  @@index([findingId])
+  @@index([unitId])
+  @@index([refKey])
+  @@index([role])
+}
+
+model KnowledgeRewriteExample {
+  id            Int      @id @default(autoincrement())
+  documentId    Int
+  sourceUnitId  Int?
+  sourceKey     String
+  scope         String
+  sourceType    String
+  layers        Json?
+  originalText  String   @db.LongText
+  rewrittenText String   @db.LongText
+  reason        String?  @db.LongText
+  sourceRefs    Json?
+  sourceSheet   String?
+  sourceRow     Int?
+  sourceColumn  String?
+  rawText       String?  @db.LongText
+  allowedForRag Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  document   KnowledgeDocument  @relation(fields: [documentId], references: [id])
+  sourceUnit KnowledgeTextUnit? @relation(fields: [sourceUnitId], references: [id], onDelete: SetNull)
+
+  @@unique([documentId, sourceKey])
+  @@index([documentId, scope])
+  @@index([sourceUnitId])
+  @@index([sourceType])
+  @@index([allowedForRag])
+}
+
+// Row-level source ledger for lossless reprocessing and audit.
+model KnowledgeSourceRecord {
+  id         Int      @id @default(autoincrement())
+  documentId Int
+  sourceKey  String
+  sheetName  String
+  rowIndex   Int?
+  recordType String
+  rawJson    Json
+  sourceHash String?
+  createdAt  DateTime @default(now())
+
+  document KnowledgeDocument @relation(fields: [documentId], references: [id])
+
+  @@unique([documentId, sourceKey])
+  @@index([documentId, sheetName])
+  @@index([recordType])
 }
 
 model KnowledgeEmbedding {
@@ -706,6 +1031,69 @@ enum TaskType {
   TASK2
 }
 
+enum PracticeTab {
+  LANGUAGE
+  THINKING
+}
+
+enum PracticeItemType {
+  ERROR_CORRECTION
+  MCQ
+  CLOZE
+  CHAIN_CLOZE
+  BREAK_LOCATE
+  CONCESSION_MATCH
+  REASON_FILTER
+  ORDERING
+  FUNCTION_ID
+  STANCE_ID
+}
+
+enum PracticeDifficulty {
+  BASIC
+  CORE
+  STRETCH
+}
+
+enum PracticeItemStatus {
+  DRAFT
+  VALIDATED
+  LIVE
+  RETIRED
+}
+
+enum PracticeVerdict {
+  CORRECT
+  PARTIAL
+  WRONG
+}
+
+enum PracticeJudgedBy {
+  PROGRAM
+  LIST
+  MODEL
+  SELF
+  HUMAN
+}
+
+enum PracticeAppealStatus {
+  NONE
+  PENDING
+  UPHELD
+  OVERTURNED
+}
+
+enum PracticeSessionMode {
+  TOPIC
+  ESSAY
+}
+
+enum PracticeSessionStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
 enum SubmissionStatus {
   PENDING
   REVIEWED
@@ -806,6 +1194,7 @@ enum AiReviewStage {
   MERGE
   VERIFICATION
   REPAIR
+  FULL_REWRITE
 }
 
 enum AiStageValidationStatus {
@@ -818,6 +1207,13 @@ enum AiAnnotationLevel {
   WORD
   PHRASE
   SENTENCE
+  PARAGRAPH
+}
+
+enum AiRewriteLayer {
+  LANGUAGE
+  COHERENCE
+  TASK
   PARAGRAPH
 }
 
@@ -869,23 +1265,23 @@ enum KnowledgeChunkType {
 // ─────────────────────────────────────────────
 
 enum AnchorType {
-  SPAN          // 正常框住词/短语/句 (start≠end)
-  POINT_BEFORE  // 零宽，锚在某位置之前
-  POINT_AFTER   // 零宽，锚在某位置之后（如词尾空格）
-  RELATION      // 针对两个单元之间的关系（句间/段间）
-  TEACHER_NOTE  // 不对应原文位置的全局讲解
+  SPAN // 正常框住词/短语/句 (start≠end)
+  POINT_BEFORE // 零宽，锚在某位置之前
+  POINT_AFTER // 零宽，锚在某位置之后（如词尾空格）
+  RELATION // 针对两个单元之间的关系（句间/段间）
+  TEACHER_NOTE // 不对应原文位置的全局讲解
 }
 
 enum RelationType {
-  CAUSAL       // 因果
-  COHESION     // 衔接
-  CONTRAST     // 转折
-  PROGRESSION  // 递进
+  CAUSAL // 因果
+  COHESION // 衔接
+  CONTRAST // 转折
+  PROGRESSION // 递进
 }
 
 enum GoldStandardSource {
-  AUTO    // 按 issueType 自动匹配
-  MANUAL  // 人工确认
+  AUTO // 按 issueType 自动匹配
+  MANUAL // 人工确认
 }
 
 enum HardNegativeType {
@@ -897,9 +1293,9 @@ enum HardNegativeType {
 }
 
 enum EmbeddingRole {
-  PRIMARY        // 默认主检索向量
-  STRUCTURE      // 结构通道专用
-  TOPIC          // 话题通道专用
+  PRIMARY // 默认主检索向量
+  STRUCTURE // 结构通道专用
+  TOPIC // 话题通道专用
   LANGUAGE_ERROR // 语言错误通道专用
 }
 

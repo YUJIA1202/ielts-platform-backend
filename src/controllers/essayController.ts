@@ -7,7 +7,7 @@ import axios from 'axios'
 let browserInstance: Browser | null = null
 
 async function getBrowser(): Promise<Browser> {
-  if (browserInstance && browserInstance.isConnected()) {
+  if (browserInstance && browserInstance.connected) {
     return browserInstance
   }
   browserInstance = await puppeteer.launch({
@@ -80,6 +80,76 @@ export const getEssays = async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: '获取范文列表失败' })
+  }
+}
+
+// Additive learner-facing catalog. The original endpoint remains unchanged for
+// compatibility, while this endpoint omits essay bodies, annotations and URLs.
+export const getEssaySummaries = async (req: Request, res: Response) => {
+  try {
+    const task = req.query.task as string | undefined
+    const subtype = req.query.subtype as string | undefined
+    const topic = req.query.topic as string | undefined
+    const score = req.query.score as string | undefined
+    const year = req.query.year as string | undefined
+    const keyword = req.query.keyword as string | undefined
+    const page = Math.max(1, parseInt(req.query.page as string) || 1)
+    const limit = Math.max(1, Math.min(50, parseInt(req.query.limit as string) || 15))
+    const where: any = {}
+    if (score) where.score = parseFloat(score)
+    if (keyword) where.AND = [{ OR: [
+      { content: { contains: keyword } },
+      { question: { content: { contains: keyword } } },
+    ] }]
+    if (task || subtype || topic || year) {
+      where.question = where.question || {}
+      if (task) where.question.task = task
+      if (subtype) {
+        const candidates = expandQuestionSubtypeFilter(task, subtype)
+        where.question.OR = candidates.map(value => ({ subtype: value }))
+      }
+      if (topic) where.question.topic = topic
+      if (year) where.question.year = parseInt(year)
+    }
+    const [total, essays] = await Promise.all([
+      prisma.modelEssay.count({ where }),
+      prisma.modelEssay.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          questionId: true,
+          score: true,
+          createdAt: true,
+          annotatedPdfUrl: true,
+          question: {
+            select: { task: true, subtype: true, topic: true, content: true, year: true, month: true, source: true },
+          },
+        },
+      }),
+    ])
+    res.json({
+      essays: essays.map(essay => ({
+        id: essay.id,
+        questionId: essay.questionId,
+        score: essay.score,
+        createdAt: essay.createdAt,
+        task: essay.question.task,
+        subtype: normalizeQuestionSubtype(essay.question.task, essay.question.subtype),
+        topic: essay.question.topic,
+        questionContent: essay.question.content,
+        year: essay.question.year,
+        month: essay.question.month,
+        source: essay.question.source,
+        annotatedPdfUrl: essay.annotatedPdfUrl ? 'available' : null,
+      })),
+      total,
+    })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: '获取范文摘要失败' })
   }
 }
 

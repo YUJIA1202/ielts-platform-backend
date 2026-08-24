@@ -82,6 +82,12 @@ async function main() {
     const uniquePromptChunkIds = new Set(events.flatMap(event => (
       event.chunks.filter(hit => hit.usedInPrompt).map(hit => hit.chunkId)
     )))
+    const ragLeaks = events.flatMap(event => event.chunks)
+      .filter(hit => !hit.chunk.document.allowedForRag)
+      .map(hit => ({ chunkId: hit.chunkId, documentId: hit.chunk.documentId }))
+    if (ragLeaks.length) {
+      throw new Error(`RAG retrieved quarantined chunks: ${JSON.stringify(ragLeaks.slice(0, 20))}`)
+    }
     const [stageResults, modelCalls] = await Promise.all([
       prisma.aiReviewStageResult.findMany({
         where: { jobId },
@@ -105,6 +111,7 @@ async function main() {
       rewrites: result.review.rewrites.length,
       retrievalEvents: events.length,
       uniquePromptChunks: uniquePromptChunkIds.size,
+      ragLeakCount: ragLeaks.length,
       stageResults,
       modelCalls,
       stages: stageSummary,

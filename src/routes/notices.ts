@@ -12,8 +12,8 @@ import {
 const router = Router()
 router.get('/',                getNotices)
 router.get('/admin/all', requireAuth, requireAdmin, getAllNotices)
-router.post('/',               requireAdmin, createNotice)
-router.put('/:id',             requireAdmin, updateNotice)
-router.delete('/:id',          requireAdmin, deleteNotice)
-router.patch('/:id/visibility',requireAdmin, toggleNoticeVisibility)
+router.post('/',               requireAuth, requireAdmin, createNotice)
+router.put('/:id',             requireAuth, requireAdmin, updateNotice)
+router.delete('/:id',          requireAuth, requireAdmin, deleteNotice)
+router.patch('/:id/visibility',requireAuth, requireAdmin, toggleNoticeVisibility)
 export default router

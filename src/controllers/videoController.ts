@@ -1,6 +1,8 @@
 import { Request, Response } from 'express'
 import prisma from '../prisma'
 import { uploadToCOS } from '../lib/cos'
+import fs from 'fs'
+import path from 'path'
 
 export async function getVideos(req: Request, res: Response) {
   try {
@@ -125,9 +127,15 @@ export async function createVideo(req: Request, res: Response) {
       return res.status(400).json({ error: '缺少必填字段：title, category, series, duration' })
     }
 
-    // 视频文件暂时还是用本地存储（等接入 VOD）
+    // 视频文件暂时使用本地存储（等接入 VOD）。Multer 使用内存存储，
+    // 因此这里必须显式落盘，不能只构造一个并不存在的 URL。
     const baseUrl = process.env.BASE_URL || 'http://localhost:4000'
-    const videoUrl = `${baseUrl}/uploads/videos/${videoFile.originalname}`
+    const extension = path.extname(videoFile.originalname).toLowerCase()
+    const videoFilename = `video_${Date.now()}${extension}`
+    const videoDirectory = path.join(process.cwd(), 'uploads', 'videos')
+    await fs.promises.mkdir(videoDirectory, { recursive: true })
+    await fs.promises.writeFile(path.join(videoDirectory, videoFilename), videoFile.buffer)
+    const videoUrl = `${baseUrl}/uploads/videos/${videoFilename}`
 
     // 封面图上传到 COS
     let coverUrl: string | null = null

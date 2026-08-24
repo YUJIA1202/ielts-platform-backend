@@ -1,8 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 import prisma from '../prisma'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_in_production'
+import { JWT_SECRET } from '../config/env'
 
 export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   // 优先从 Cookie 读，兼容旧的 Authorization header
@@ -52,8 +51,6 @@ export const requireAdmin = (req: Request, res: Response, next: NextFunction) =>
 
 export const requireSubscription = (tier: 'BASIC' | 'PRO') => {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const user = await prisma.user.findUnique({ where: { id: (req as any).userId } })
     if (!user) {
       res.status(401).json({ error: '用户不存在' })

@@ -1,6 +1,6 @@
 import express from 'express'
 import cors from 'cors'
-import dotenv from 'dotenv'
+import './config/env'
 import path from 'path'
 import cookieParser from 'cookie-parser'
 import helmet from 'helmet'
@@ -20,7 +20,7 @@ import noticeRoutes         from './routes/notices'
 import outlineViewLogRoutes from './routes/outlineViewLog'
 import examSessionRoutes     from './routes/examSessions'
 import aiReviewRoutes        from './routes/aiReviews'
-dotenv.config({ override: false })
+import practiceRoutes        from './routes/practice'
 
 const app  = express()
 const PORT = process.env.PORT || 4000
@@ -75,6 +75,7 @@ app.use('/api/notices',          noticeRoutes)
 app.use('/api/outline-view-log', outlineViewLogRoutes)
 app.use('/api/exam-sessions',    examSessionRoutes)
 app.use('/api/ai-reviews',        aiReviewRoutes)
+app.use('/api/practice',          practiceRoutes)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', message: '服务器运行正常' })

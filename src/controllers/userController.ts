@@ -125,8 +125,14 @@ export const uploadAvatar = async (req: Request, res: Response) => {
     const file   = req.file
     if (!file) return res.status(400).json({ error: '请上传头像图片' })
 
+    const extension = path.extname(file.originalname).toLowerCase()
+    const filename = `avatar_${userId}_${Date.now()}${extension}`
+    const avatarDirectory = path.join(process.cwd(), 'uploads', 'avatars')
+    fs.mkdirSync(avatarDirectory, { recursive: true })
+    fs.writeFileSync(path.join(avatarDirectory, filename), file.buffer)
+
     const baseUrl   = process.env.BASE_URL || 'http://localhost:4000'
-    const avatarUrl = `${baseUrl}/uploads/avatars/${file.filename}`
+    const avatarUrl = `${baseUrl}/uploads/avatars/${filename}`
 
     const oldUser = await prisma.user.findUnique({
       where: { id: userId }, select: { avatar: true },

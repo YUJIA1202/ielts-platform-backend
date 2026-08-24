@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import multer from 'multer'
-import { getEssays, getEssaysByQuestion, getEssayById, getAnnotatedPdf, createEssay, updateEssay, deleteEssay, generatePdf, getAnnotations, saveAnnotations } from '../controllers/essayController'
+import { getEssays, getEssaySummaries, getEssaysByQuestion, getEssayById, getAnnotatedPdf, createEssay, updateEssay, deleteEssay, generatePdf, getAnnotations, saveAnnotations } from '../controllers/essayController'
 import { requireAuth, requireAdmin } from '../middleware/auth'
+import { validatePdfFile } from '../middleware/uploadValidation'
 
 const router = Router()
 
@@ -18,14 +19,15 @@ const upload = multer({
 })
 
 router.get('/', getEssays)
+router.get('/v2', getEssaySummaries)
 router.get('/question/:questionId', getEssaysByQuestion)
 router.get('/:id/annotated-pdf', requireAuth, getAnnotatedPdf)
 router.get('/:id/pdf', requireAuth, generatePdf)
 router.get('/:id/annotations', requireAuth, getAnnotations)
 router.put('/:id/annotations', requireAuth, requireAdmin, saveAnnotations)
 router.get('/:id', requireAuth, getEssayById)
-router.post('/', requireAuth, requireAdmin, upload.single('annotatedPdf'), createEssay)
-router.put('/:id', requireAuth, requireAdmin, upload.single('annotatedPdf'), updateEssay)
+router.post('/', requireAuth, requireAdmin, upload.single('annotatedPdf'), validatePdfFile, createEssay)
+router.put('/:id', requireAuth, requireAdmin, upload.single('annotatedPdf'), validatePdfFile, updateEssay)
 router.delete('/:id', requireAuth, requireAdmin, deleteEssay)
 
 export default router

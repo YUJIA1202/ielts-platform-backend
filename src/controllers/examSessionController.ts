@@ -6,6 +6,15 @@ const includeQuestions = {
   secondaryQuestion: { include: { essays: true } },
 }
 
+const includeQuestionSummaries = {
+  primaryQuestion: true,
+  secondaryQuestion: true,
+}
+
+function examQuestionPayload(res: Response) {
+  return res.locals.safeQuestionPayload ? includeQuestionSummaries : includeQuestions
+}
+
 export async function createExamSession(req: Request, res: Response) {
   try {
     const userId = (req as any).userId as number
@@ -40,7 +49,7 @@ export async function createExamSession(req: Request, res: Response) {
         mode,
         durationSeconds,
       },
-      include: includeQuestions,
+      include: examQuestionPayload(res),
     })
 
     res.json(session)
@@ -65,6 +74,17 @@ export async function updateExamSession(req: Request, res: Response) {
       return
     }
 
+    // Completion is terminal. Duplicate submit/autosave requests return the
+    // existing record and cannot reopen the exam or change completedAt.
+    if (existing.status === 'COMPLETED') {
+      const completed = await prisma.examSession.findUnique({
+        where: { id },
+        include: examQuestionPayload(res),
+      })
+      res.json(completed)
+      return
+    }
+
     const { primaryAnswer, secondaryAnswer, elapsedSeconds, currentPart, status } = req.body
     const nextStatus = ['IN_PROGRESS', 'COMPLETED', 'ABANDONED'].includes(status)
       ? status
@@ -75,12 +95,17 @@ export async function updateExamSession(req: Request, res: Response) {
       data: {
         ...(primaryAnswer !== undefined && { primaryAnswer: String(primaryAnswer) }),
         ...(secondaryAnswer !== undefined && { secondaryAnswer: String(secondaryAnswer) }),
-        ...(elapsedSeconds !== undefined && { elapsedSeconds: Math.max(0, Number(elapsedSeconds) || 0) }),
+        ...(elapsedSeconds !== undefined && {
+          elapsedSeconds: Math.min(
+            existing.durationSeconds,
+            Math.max(existing.elapsedSeconds, Number(elapsedSeconds) || 0),
+          ),
+        }),
         ...(currentPart !== undefined && { currentPart: Number(currentPart) === 2 ? 2 : 1 }),
         ...(nextStatus && { status: nextStatus }),
         ...(nextStatus === 'COMPLETED' && { completedAt: new Date() }),
       },
-      include: includeQuestions,
+      include: examQuestionPayload(res),
     })
 
     res.json(session)
@@ -96,7 +121,7 @@ export async function getMyExamSessions(req: Request, res: Response) {
     const sessions = await prisma.examSession.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
-      include: includeQuestions,
+      include: examQuestionPayload(res),
     })
     res.json(sessions)
   } catch (error) {
@@ -112,7 +137,7 @@ export async function getExamSession(req: Request, res: Response) {
     const id = Number(req.params.id)
     const session = await prisma.examSession.findUnique({
       where: { id },
-      include: includeQuestions,
+      include: examQuestionPayload(res),
     })
 
     if (!session) {

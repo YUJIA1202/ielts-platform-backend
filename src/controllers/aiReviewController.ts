@@ -60,6 +60,20 @@ export const getAiReview = async (req: Request, res: Response) => {
   }
 }
 
+export const getAiReviewPresentation = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId as number
+    const role = (req as any).role as string | undefined
+    const review = await getAiReviewForUser(Number(req.params.id), userId, role)
+    if (!review) return res.status(404).json({ error: 'AI批改结果不存在' })
+    res.json((review as any).presentation)
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Forbidden') return res.status(403).json({ error: '无权查看该批改结果' })
+    console.error(error)
+    res.status(500).json({ error: '获取AI批改呈现数据失败' })
+  }
+}
+
 export const getMyAiReviews = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId as number

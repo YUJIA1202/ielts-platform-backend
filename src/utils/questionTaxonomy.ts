@@ -7,12 +7,17 @@ export const TASK2_SUBTYPES = [
 ] as const
 
 const TASK2_SUBTYPE_ALIASES: Record<string, string> = {
+  OPINION: '同意与否/程度同意',
   '程度同意': '同意与否/程度同意',
   '同意与否': '同意与否/程度同意',
+  DISCUSSION: '双边/讨论双方',
   '双边': '双边/讨论双方',
   '讨论双方': '双边/讨论双方',
+  REPORT_TWO_QUESTIONS: '报告/回答两个问题',
+  REPORT: '报告/回答两个问题',
   '报告': '报告/回答两个问题',
   '回答两个问题': '报告/回答两个问题',
+  ADVANTAGES_DISADVANTAGES: '优缺点/积极消极',
   '优缺点': '优缺点/积极消极',
   '积极消极': '优缺点/积极消极',
   '其优缺点': '优缺点/积极消极',

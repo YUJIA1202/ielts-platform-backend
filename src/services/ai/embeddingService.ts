@@ -1,6 +1,11 @@
 import { KnowledgeEmbeddingStatus, Prisma } from '@prisma/client'
 import prisma from '../../prisma'
-import { embedTexts, embeddingContentHash, getEmbeddingConfig } from './embeddingProvider'
+import {
+  embedTexts,
+  embeddingContentHash,
+  getEmbeddingBatchLimit,
+  getEmbeddingConfig,
+} from './embeddingProvider'
 
 export interface EmbedKnowledgeOptions {
   limit?: number
@@ -12,7 +17,7 @@ export interface EmbedKnowledgeOptions {
 export async function getEmbeddingStatus() {
   const config = getEmbeddingConfig()
   const [totalChunks, byStatus, byDimensions, recentFailures] = await Promise.all([
-    prisma.knowledgeChunk.count(),
+    prisma.knowledgeChunk.count({ where: { document: { allowedForRag: true } } }),
     prisma.knowledgeEmbedding.groupBy({
       by: ['status'],
       where: { provider: config.provider, model: config.model },
@@ -57,9 +62,7 @@ export async function getEmbeddingStatus() {
 export async function embedKnowledgeChunks(options: EmbedKnowledgeOptions = {}) {
   const config = getEmbeddingConfig()
   const limit = Math.max(1, Math.min(options.limit || 100, 10_000))
-  const providerBatchLimit = config.provider.toUpperCase() === 'ZHIPU' || config.baseUrl.includes('bigmodel.cn')
-    ? 64
-    : 200
+  const providerBatchLimit = getEmbeddingBatchLimit(config)
   const batchSize = Math.max(1, Math.min(options.batchSize || 50, providerBatchLimit))
   const pending: Awaited<ReturnType<typeof loadChunkPage>> = []
   let cursorId: number | undefined
@@ -109,7 +112,10 @@ export async function embedKnowledgeChunks(options: EmbedKnowledgeOptions = {}) 
     })))
 
     try {
-      const result = await embedTexts(batch.map(chunk => chunk.chunkText))
+      const result = await embedTexts(
+        batch.map(chunk => chunk.chunkText),
+        { inputType: 'document' },
+      )
       await prisma.$transaction(batch.map((chunk, index) => prisma.knowledgeEmbedding.update({
         where: { chunkId_provider_model_embeddingRole: { chunkId: chunk.id, provider: config.provider, model: config.model, embeddingRole: 'PRIMARY' } },
         data: {
@@ -134,7 +140,10 @@ export async function embedKnowledgeChunks(options: EmbedKnowledgeOptions = {}) 
 
 function loadChunkPage(provider: string, model: string, cursorId?: number) {
   return prisma.knowledgeChunk.findMany({
-    where: cursorId ? { id: { gt: cursorId } } : undefined,
+    where: {
+      document: { allowedForRag: true },
+      ...(cursorId ? { id: { gt: cursorId } } : {}),
+    },
     include: { embeddings: { where: { provider, model } } },
     orderBy: { id: 'asc' },
     take: 500,

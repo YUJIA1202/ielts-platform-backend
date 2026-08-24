@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "task2-excel-question-overrides/1.0.0",
+  "documents": {
+    "bl_1大_final (2).xlsx": {
+      "questionText": "Some people believe the best way to produce a better society is to ensure there is only a small difference between the earnings of the richest and the poorest. To what extent do you agree or disagree?",
+      "sourceType": "CURATED_MATCH_TO_USER_PROMPT",
+      "sourceKey": "user-provided:income-gap-question"
+    },
+    "fl 3大_切分_final_修订版4.xlsx": {
+      "questionText": "Some people think someone achieves their aims is the most of the question of luck. To what extent do you agree or disagree?",
+      "sourceType": "MASTER_QUESTION_BANK",
+      "sourceKey": "ielts-task2-final-revised:696"
+    },
+    "hsc新三大_final (3).xlsx": {
+      "questionText": "Differences between countries are becoming less evident nowadays. People tend to have the same films, music, brands, TV channels, etc. To what extent do you think the disadvantages outweigh the advantages?",
+      "sourceType": "MASTER_QUESTION_BANK",
+      "sourceKey": "ielts-task2-final-revised:10"
+    },
+    "hsc新六大_final_详细版.xlsx": {
+      "questionText": "Some people think that young people should spend more of their free time at home with their families, and spend less time entertaining outside. Others disagree. Discuss both views and give your opinion.",
+      "sourceType": "MASTER_QUESTION_BANK",
+      "sourceKey": "ielts-task2-final-revised:702"
+    },
+    "may 3大_切分_final_修订版2.xlsx": {
+      "questionText": "In many countries, women are allowed to take maternity leave from their jobs during the first month after the birth of their baby. Do advantages outweigh the disadvantages?",
+      "sourceType": "MASTER_QUESTION_BANK",
+      "sourceKey": "ielts-task2-final-revised:611"
+    },
+    "v1大_切分_final_修订版3.xlsx": {
+      "questionText": "Many parents choose to teach their children at home rather than sending their children. Do you think the benefits of home schooling outweigh its drawbacks?",
+      "sourceType": "MASTER_QUESTION_BANK",
+      "sourceKey": "ielts-task2-final-revised:492"
+    },
+    "xc18_final (1).xlsx": {
+      "questionText": "Some people believe the best way to produce a better society is to ensure there is only a small difference between the earnings of the richest and the poorest. To what extent do you agree or disagree?",
+      "sourceType": "USER_CONFIRMED",
+      "sourceKey": "user-provided:xc18-income-gap-question"
+    },
+    "xc19_final (2).xlsx": {
+      "questionText": "Some people think young people should go to university to further their education while others think they should be encouraged to work as car mechanics or builders etc. to serve society. Discuss both views and give your own opinion.",
+      "sourceType": "MASTER_QUESTION_BANK",
+      "sourceKey": "ielts-task2-final-revised:243"
+    },
+    "xcai10_final (1).xlsx": {
+      "questionText": "More and more people are interested in cosmetic surgery in order to improve their appearance. Why? Is it a positive or negative development?",
+      "sourceType": "MASTER_QUESTION_BANK",
+      "sourceKey": "ielts-task2-final-revised:936"
+    }
+  }
+}
